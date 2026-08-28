@@ -1,0 +1,138 @@
+# Makefile.toml — cargo-make tasks for dictaku
+# Install: cargo install cargo-make
+# Usage:   cargo make <task>
+
+[config]
+default_to_workspace = false
+
+[env]
+RUST_LOG = { value = "dictaku=debug,tauri=info", condition = { env_not_set = ["RUST_LOG"] } }
+RUST_BACKTRACE = { value = "1", condition = { env_not_set = ["RUST_BACKTRACE"] } }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Development
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tasks.dev]
+description = "Launch dictaku in development mode with hot-reload"
+command = "cargo"
+args = ["tauri", "dev"]
+env = { RUST_LOG = "dictaku=debug,tauri=debug" }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Build
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tasks.build]
+description = "Build dictaku production installer (NSIS .exe + portable .zip)"
+command = "cargo"
+args = ["tauri", "build"]
+
+[tasks.build-check]
+description = "Compile Rust only — no Tauri bundle (faster iteration check)"
+cwd = "src-tauri"
+command = "cargo"
+args = ["build", "--release"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Code quality
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tasks.fmt]
+description = "Format Rust source code"
+cwd = "src-tauri"
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.fmt-check]
+description = "Check formatting without modifying files"
+cwd = "src-tauri"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.clippy]
+description = "Run clippy with warnings-as-errors"
+cwd = "src-tauri"
+command = "cargo"
+args = ["clippy", "--all-targets", "--", "-D", "warnings"]
+
+[tasks.lint]
+description = "Run clippy + fmt check (mirrors CI)"
+dependencies = ["clippy", "fmt-check"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tests
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tasks.test]
+description = "Run all unit tests"
+cwd = "src-tauri"
+command = "cargo"
+args = ["test", "--lib"]
+
+[tasks.test-verbose]
+description = "Run all unit tests with output"
+cwd = "src-tauri"
+command = "cargo"
+args = ["test", "--lib", "--", "--nocapture"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Security
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tasks.audit]
+description = "Check Rust dependencies for known vulnerabilities"
+cwd = "src-tauri"
+install_crate = "cargo-audit"
+command = "cargo"
+args = ["audit"]
+
+[tasks.outdated]
+description = "List outdated Rust dependencies"
+cwd = "src-tauri"
+install_crate = "cargo-outdated"
+command = "cargo"
+args = ["outdated"]
+
+[tasks.security]
+description = "Run audit + outdated checks (mirrors security-audit CI)"
+dependencies = ["audit", "outdated"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Model management
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tasks.download-model-tiny]
+description = "Download Whisper tiny model (~75 MB)"
+script_runner = "powershell"
+script = ["./scripts/download-model.ps1 -Model tiny"]
+
+[tasks.download-model-base]
+description = "Download Whisper base model (~142 MB)"
+script_runner = "powershell"
+script = ["./scripts/download-model.ps1 -Model base"]
+
+[tasks.download-model-small]
+description = "Download Whisper small model (~466 MB) — recommended default"
+script_runner = "powershell"
+script = ["./scripts/download-model.ps1 -Model small"]
+
+[tasks.download-model-medium]
+description = "Download Whisper medium model (~1.5 GB)"
+script_runner = "powershell"
+script = ["./scripts/download-model.ps1 -Model medium"]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Composite tasks
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tasks.ci]
+description = "Run the full CI check suite locally (lint + test)"
+dependencies = ["lint", "test"]
+
+[tasks.pre-commit]
+description = "Fast pre-commit checks (fmt + clippy only)"
+dependencies = ["fmt-check", "clippy"]
+
+[tasks.default]
+alias = "dev"

@@ -1,0 +1,125 @@
+name: Bug Report
+description: Report a defect or unexpected behaviour in dictaku
+title: "[Bug] "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to file a bug report.
+        Please fill in all fields — incomplete reports make debugging much harder.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: "Example: When I press Ctrl+Alt+D, the tray icon changes to Listening state but no audio is captured."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps to trigger the bug, starting from a fresh app launch.
+      placeholder: |
+        1. Launch dictaku from the system tray
+        2. Open Notepad
+        3. Press Ctrl+Alt+D
+        4. Speak for 3 seconds
+        5. Press Ctrl+Alt+D again
+        6. See error: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should have happened?
+      placeholder: "The transcribed text should have been injected into the Notepad window."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What actually happened instead?
+      placeholder: "Nothing was injected. The tray icon returned to Idle without any visible text."
+    validations:
+      required: true
+
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      description: Run `winver` in the Start menu and paste the result.
+      placeholder: "Windows 11 Pro 23H2 (Build 22631)"
+    validations:
+      required: true
+
+  - type: input
+    id: dictaku-version
+    attributes:
+      label: dictaku version
+      description: Found in the tray menu under "About" or in the installer filename.
+      placeholder: "v0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: whisper-model
+    attributes:
+      label: Active Whisper model
+      description: Which model is selected in the tray menu?
+      options:
+        - tiny
+        - base
+        - small
+        - medium
+        - Not sure / model not loaded
+    validations:
+      required: true
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Transcription language
+      description: Language configured in the tray menu.
+      options:
+        - Auto-detect
+        - Francais (FR)
+        - English (EN)
+        - Nederlands (NL)
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Application log
+      description: |
+        Paste the content of `%APPDATA%\dictaku\dictaku.log` (or the last relevant lines).
+        Wrap with ``` for formatting.
+      placeholder: |
+        ```
+        2026-08-27T10:00:00Z INFO dictation: state transition Idle → Listening
+        2026-08-27T10:00:03Z ERROR audio: cpal stream error: ...
+        ```
+      render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this has not been reported before
+          required: true
+        - label: I am running the latest release of dictaku
+          required: true
+        - label: The Whisper model file is present in `~/.dictaku/models/`
+          required: false

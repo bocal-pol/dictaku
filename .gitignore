@@ -1,0 +1,57 @@
+# ── Rust / Cargo ─────────────────────────────────────────────────────────────
+/target/
+src-tauri/target/
+**/*.rs.bk
+
+# ── Tauri ─────────────────────────────────────────────────────────────────────
+src-tauri/gen/
+.tauri/
+dist/
+dist-ssr/
+*.app
+*.dmg
+*.deb
+*.rpm
+
+# ── Modèles Whisper (binaires volumineux — télécharger via download-model.ps1)
+resources/whisper-cli.exe
+resources/*.bin
+src-tauri/resources/
+
+# ── Dépendances Node (si ajout d'un bundler frontend en v0.2+)
+node_modules/
+.pnpm-store/
+.yarn/
+
+# ── IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ── Environnement Windows
+Thumbs.db
+Desktop.ini
+
+# ── Claude Code (mémoire et travail interne — non public)
+.claude/
+*.patch
+
+# ── Rapports et analyses d'agents (travail interne)
+analyse/
+architecture/vitruve-agent/
+design/iris-agent/
+infrastructure/atlas-agent/
+
+# ── Fichier de fiche de travail
+dictataku_fiche.html
+
+# ── Config sensible
+.env
+.env.local
+.env.*.local
+
+# ── Logs
+*.log
+logs/

@@ -1,0 +1,228 @@
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{Device, SampleRate, Stream, StreamConfig};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
+use tracing::{debug, info, warn};
+
+/// Wrapper pour rendre `cpal::Stream` envoyable entre threads.
+///
+/// SAFETY : `cpal::Stream` est !Send par précaution conservative, mais les
+/// opérations effectuées ici (drop) sont thread-safe sur Windows (WASAPI).
+/// Ce wrapper est uniquement utilisé pour transférer le stream vers un thread
+/// de gardiennage dont le seul rôle est de le maintenir en vie puis de le dropper.
+struct SendableStream(Stream);
+unsafe impl Send for SendableStream {}
+
+use crate::error::{DictakuError, Result};
+
+/// Format audio requis par Whisper.cpp — 16kHz mono f32.
+const TARGET_SAMPLE_RATE: u32 = 16_000;
+const CHANNELS: u16 = 1;
+
+/// Taille du chunk audio envoyé sur le channel (en frames).
+/// 512 frames @ 16kHz = 32ms de latence par chunk.
+const CHUNK_SIZE: usize = 512;
+
+/// Configuration du VAD (Voice Activity Detection) basé sur l'énergie RMS.
+pub struct VadConfig {
+    /// Seuil RMS en dessous duquel on considère le signal comme silence.
+    pub threshold: f32,
+    /// Durée de silence consécutif avant arrêt automatique.
+    pub silence_duration: Duration,
+}
+
+impl Default for VadConfig {
+    fn default() -> Self {
+        Self {
+            threshold: 0.01,
+            silence_duration: Duration::from_millis(1500),
+        }
+    }
+}
+
+/// Calcule l'énergie RMS d'un chunk de samples.
+///
+/// RMS = sqrt(mean(x²)) — mesure l'énergie sonore perçue.
+/// Plus rapide et suffisant pour la VAD comparé à la FFT.
+fn rms(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f32 = samples.iter().map(|&s| s * s).sum();
+    (sum_sq / samples.len() as f32).sqrt()
+}
+
+/// Capture audio en temps réel depuis le microphone par défaut.
+///
+/// Pipeline :
+///   cpal callback → buffer partagé → thread VAD → mpsc channel
+///
+/// Le thread VAD lit le buffer, détecte les silences > `silence_duration`,
+/// et retourne les samples PCM 16kHz mono f32 via le channel.
+pub struct AudioRecorder {
+    vad: VadConfig,
+}
+
+impl AudioRecorder {
+    pub fn new(vad: VadConfig) -> Self {
+        Self { vad }
+    }
+
+    /// Lance la capture et retourne un channel recevant les chunks audio.
+    ///
+    /// Le sender se ferme automatiquement quand :
+    /// - le silence dépasse `vad.silence_duration`
+    /// - `stop_signal` est activé (via le `Arc<Mutex<bool>>` retourné)
+    pub fn start_recording(
+        &self,
+    ) -> Result<(
+        mpsc::Receiver<Vec<f32>>,
+        Arc<Mutex<bool>>, // stop_signal
+    )> {
+        let host = cpal::default_host();
+        let device = host
+            .default_input_device()
+            .ok_or_else(|| DictakuError::AudioCapture("Aucun microphone disponible".into()))?;
+
+        info!("Microphone sélectionné : {}", device.name().unwrap_or_default());
+
+        let config = build_stream_config(&device)?;
+        debug!("Config audio : {:?}", config);
+
+        let (tx, rx) = mpsc::channel::<Vec<f32>>(32);
+        let stop_signal = Arc::new(Mutex::new(false));
+
+        // Buffer partagé entre le callback cpal (thread RT) et le thread VAD.
+        // On l'accède via Mutex standard (non-async) car le callback cpal
+        // est synchrone et doit rester léger.
+        let shared_buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let buffer_clone = shared_buffer.clone();
+        let stop_clone = stop_signal.clone();
+        let vad_threshold = self.vad.threshold;
+        let silence_duration = self.vad.silence_duration;
+
+        // Callback cpal — exécuté dans un thread temps-réel OS.
+        // Doit être minimal : pas d'allocation, pas de mutex contention longue.
+        let stream = device
+            .build_input_stream(
+                &config,
+                move |data: &[f32], _info| {
+                    if let Ok(mut buf) = buffer_clone.lock() {
+                        buf.extend_from_slice(data);
+                    }
+                },
+                move |err| {
+                    tracing::error!("Erreur flux audio cpal : {err}");
+                },
+                None,
+            )
+            .map_err(|e| DictakuError::AudioCapture(e.to_string()))?;
+
+        stream.play().map_err(|e| DictakuError::AudioCapture(e.to_string()))?;
+
+        // `cpal::Stream` n'impl pas `Send` — on l'enveloppe dans `SendableStream`
+        // pour le transférer vers un thread gardien dont le seul rôle est de le
+        // maintenir en vie jusqu'à la fin du thread VAD, puis de le dropper.
+        let sendable_stream = SendableStream(stream);
+        let (stream_drop_tx, stream_drop_rx) = std::sync::mpsc::sync_channel::<()>(0);
+        std::thread::spawn(move || {
+            let _ = stream_drop_rx.recv();
+            drop(sendable_stream);
+        });
+
+        // Thread VAD — lit le buffer, envoie les chunks, détecte le silence.
+        let stop_vad = stop_signal.clone();
+        std::thread::spawn(move || {
+            let mut last_voice_at = Instant::now();
+            let mut chunk_acc: Vec<f32> = Vec::with_capacity(CHUNK_SIZE);
+
+            loop {
+                // Vérification du signal d'arrêt externe (annulation par l'utilisateur).
+                if *stop_vad.lock().unwrap() {
+                    debug!("VAD : signal d'arrêt reçu");
+                    break;
+                }
+
+                // Récupération des samples depuis le buffer partagé.
+                let new_samples: Vec<f32> = {
+                    let mut buf = shared_buffer.lock().unwrap();
+                    let drained: Vec<f32> = buf.drain(..).collect();
+                    drained
+                };
+
+                if !new_samples.is_empty() {
+                    let energy = rms(&new_samples);
+
+                    if energy > vad_threshold {
+                        // Voix détectée — mise à jour du timestamp.
+                        last_voice_at = Instant::now();
+                    } else if last_voice_at.elapsed() > silence_duration {
+                        // Silence prolongé — fin de la dictée.
+                        info!("VAD : silence détecté — arrêt de la capture");
+                        // Envoie le dernier chunk accumulé si non vide.
+                        if !chunk_acc.is_empty() {
+                            let _ = tx.blocking_send(chunk_acc.clone());
+                        }
+                        break;
+                    }
+
+                    chunk_acc.extend_from_slice(&new_samples);
+
+                    // Envoi par chunks de taille fixe pour pipeline fluide.
+                    while chunk_acc.len() >= CHUNK_SIZE {
+                        let chunk: Vec<f32> = chunk_acc.drain(..CHUNK_SIZE).collect();
+                        if tx.blocking_send(chunk).is_err() {
+                            // Le receiver est fermé — arrêt propre.
+                            debug!("VAD : receiver fermé, arrêt");
+                            // Signal au gardien de stream de dropper.
+                            let _ = stream_drop_tx.send(());
+                            return;
+                        }
+                    }
+                }
+
+                // Pause courte pour ne pas saturer le CPU.
+                // 10ms = latence max acceptable pour la VAD temps réel.
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            // Signal au gardien de stream de dropper proprement.
+            let _ = stream_drop_tx.send(());
+        });
+
+        Ok((rx, stop_signal))
+    }
+}
+
+/// Construit une `StreamConfig` 16kHz mono compatible Whisper.
+///
+/// Si le device ne supporte pas exactement 16kHz, retourne une erreur explicite
+/// car un resampling en temps réel n'est pas implémenté en v0.1.
+fn build_stream_config(device: &Device) -> Result<StreamConfig> {
+    let supported = device
+        .supported_input_configs()
+        .map_err(|e| DictakuError::AudioCapture(format!("Configs supportées : {e}")))?;
+
+    for range in supported {
+        if range.channels() == CHANNELS
+            && range.min_sample_rate().0 <= TARGET_SAMPLE_RATE
+            && range.max_sample_rate().0 >= TARGET_SAMPLE_RATE
+        {
+            return Ok(StreamConfig {
+                channels: CHANNELS,
+                sample_rate: SampleRate(TARGET_SAMPLE_RATE),
+                buffer_size: cpal::BufferSize::Default,
+            });
+        }
+    }
+
+    // Fallback : essaye quand même avec la config cible — certains drivers
+    // acceptent 16kHz même si `supported_input_configs` le signale mal.
+    warn!("16kHz non listé dans les configs supportées — tentative forcée");
+    Ok(StreamConfig {
+        channels: CHANNELS,
+        sample_rate: SampleRate(TARGET_SAMPLE_RATE),
+        buffer_size: cpal::BufferSize::Default,
+    })
+}

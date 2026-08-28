@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Dictaku",
+  "version": "0.1.0",
+  "identifier": "com.dictaku.app",
+  "build": {
+    "frontendDist": "../src",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Dictaku",
+        "width": 280,
+        "height": 80,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": false,
+        "url": "popup.html"
+      },
+      {
+        "label": "settings",
+        "title": "Dictaku — Paramètres",
+        "width": 480,
+        "height": 520,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "decorations": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "center": true,
+        "url": "settings.html"
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false,
+      "tooltip": "Dictaku — Dictée vocale"
+    },
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "resources": []
+  }
+}

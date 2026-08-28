@@ -1,0 +1,81 @@
+name: Feature Request
+description: Propose a new feature or improvement for dictaku
+title: "[Feature] "
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests help shape the roadmap. Please be as specific as possible.
+        Check the [feature backlog](../blob/main/intake/feature-backlog.md) first
+        to avoid duplicates.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this feature solve?
+      description: |
+        Describe the concrete limitation or friction you experience today.
+        Focus on the *why*, not the solution.
+      placeholder: |
+        "When I dictate into an app with a non-standard text field (e.g. Electron apps),
+        the text injection fails silently. I have no way to know if the text was actually sent."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like dictaku to address this problem?
+      placeholder: |
+        "Add a brief on-screen overlay (near the tray icon or as a toast) that shows
+        the last injected text for 2 seconds so the user can confirm the injection worked."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: |
+        Have you explored other approaches or workarounds? Why are they insufficient?
+      placeholder: |
+        "I tried copying the transcribed text to the clipboard instead, but that overwrites
+        the user's clipboard content which is disruptive."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which area does this feature affect?
+      multiple: false
+      options:
+        - Hotkey / Activation
+        - Audio capture
+        - Whisper transcription
+        - Text injection
+        - Tray UI / Menu
+        - Configuration / Settings
+        - Model management (download, switch)
+        - Performance / Resource usage
+        - Installer / Distribution
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this has not been requested before
+          required: true
+        - label: This feature aligns with dictaku's offline-first, privacy-first principles
+          required: false
+        - label: I checked the feature backlog and this is not already planned
+          required: false

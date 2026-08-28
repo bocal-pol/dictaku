@@ -1,0 +1,67 @@
+/* Reset minimal */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Variables globales Dictaku */
+:root {
+  --color-bg:         #081408;
+  --color-bg-light:   #0f1410;
+  --color-border:     #166534;
+  --color-accent:     #22c55e;
+  --color-accent-dim: #86efac;
+  --color-text:       #d1fae5;
+  --color-muted:      #6b7280;
+  --color-dark:       #374151;
+  --font-sans:        -apple-system, 'Segoe UI', system-ui, sans-serif;
+  --radius-sm:        4px;
+  --radius-md:        6px;
+  --radius-lg:        12px;
+}
+
+html, body {
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Page splash (index.html) */
+.splash {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 12px;
+}
+
+.splash__title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-accent);
+  letter-spacing: -0.02em;
+}
+
+.splash__subtitle {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* Utilitaires */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

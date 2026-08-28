@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dictaku</title>
+  <link rel="stylesheet" href="styles/main.css" />
+</head>
+<body>
+  <!-- Page d'accueil minimale — l'app vit principalement dans le tray.
+       Cette page n'est pas utilisée en production (visible: false dans tauri.conf.json).
+       Elle sert de point d'entrée pour les tests de développement. -->
+  <div class="splash">
+    <div class="splash__logo">
+      <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="#22c55e">
+        <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-2.07A7 7 0 0 0 19 12h-2z"/>
+      </svg>
+    </div>
+    <h1 class="splash__title">Dictaku</h1>
+    <p class="splash__subtitle">Dictée vocale offline — Ctrl+Alt+D</p>
+  </div>
+</body>
+</html>

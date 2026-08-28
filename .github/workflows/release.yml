@@ -1,0 +1,266 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  WHISPER_CPP_TAG: v1.7.1
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # Job 1 — Compile whisper-cli.exe from whisper.cpp sources
+  # ─────────────────────────────────────────────────────────────────
+  build-whisper-cli:
+    name: Build whisper-cli.exe
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      whisper-tag: ${{ env.WHISPER_CPP_TAG }}
+
+    steps:
+      - name: Cache whisper-cli binary
+        id: cache-whisper
+        uses: actions/cache@v4
+        with:
+          path: whisper-build/bin/whisper-cli.exe
+          key: whisper-cli-windows-x64-${{ env.WHISPER_CPP_TAG }}
+
+      - name: Checkout whisper.cpp
+        if: steps.cache-whisper.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ggerganov/whisper.cpp
+          ref: ${{ env.WHISPER_CPP_TAG }}
+          path: whisper-cpp
+
+      - name: Configure CMake
+        if: steps.cache-whisper.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          cmake -S whisper-cpp -B whisper-build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_SHARED_LIBS=OFF `
+            -DWHISPER_BUILD_TESTS=OFF `
+            -DWHISPER_BUILD_EXAMPLES=ON
+
+      - name: Build whisper-cli
+        if: steps.cache-whisper.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          cmake --build whisper-build --config Release --target whisper-cli -j 4
+
+      - name: Locate and stage whisper-cli.exe
+        if: steps.cache-whisper.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $bin = Get-ChildItem -Recurse -Filter "whisper-cli.exe" whisper-build | Select-Object -First 1
+          if (-not $bin) { Write-Error "whisper-cli.exe not found after build"; exit 1 }
+          New-Item -ItemType Directory -Force -Path whisper-build/bin | Out-Null
+          Copy-Item $bin.FullName whisper-build/bin/whisper-cli.exe
+          Write-Output "Staged: $($bin.FullName) → whisper-build/bin/whisper-cli.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-cli-windows-x64
+          path: whisper-build/bin/whisper-cli.exe
+          retention-days: 7
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────────
+  # Job 2 — Build dictaku installer + portable archive
+  # ─────────────────────────────────────────────────────────────────
+  build-dictaku:
+    name: Build dictaku
+    runs-on: windows-latest
+    timeout-minutes: 30
+    needs: build-whisper-cli
+
+    steps:
+      - name: Checkout dictaku
+        uses: actions/checkout@v4
+
+      - name: Download whisper-cli artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: whisper-cli-windows-x64
+          path: whisper-artifact
+
+      - name: Place whisper-cli.exe in resources
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/resources | Out-Null
+          Copy-Item whisper-artifact/whisper-cli.exe src-tauri/resources/whisper-cli.exe
+          Write-Output "whisper-cli.exe placed in src-tauri/resources/"
+          Get-Item src-tauri/resources/whisper-cli.exe | Select-Object Name, Length
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+            ${{ runner.os }}-cargo-
+
+      - name: Install Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build Tauri application
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # Sign only when the private key secret is configured
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) {
+            Write-Output "Signing enabled — private key detected"
+          } else {
+            Write-Output "Signing skipped — TAURI_SIGNING_PRIVATE_KEY not set"
+          }
+          cargo tauri build
+
+      - name: Locate build artifacts
+        id: locate-artifacts
+        shell: pwsh
+        run: |
+          $nsis = Get-ChildItem -Recurse -Filter "*.exe" src-tauri/target/release/bundle/nsis |
+            Select-Object -First 1
+          $zip  = Get-ChildItem -Recurse -Filter "*.zip" src-tauri/target/release/bundle |
+            Select-Object -First 1
+
+          if (-not $nsis) { Write-Error "NSIS installer not found"; exit 1 }
+
+          Write-Output "nsis_path=$($nsis.FullName)"  >> $env:GITHUB_OUTPUT
+          Write-Output "nsis_name=$($nsis.Name)"       >> $env:GITHUB_OUTPUT
+
+          if ($zip) {
+            Write-Output "zip_path=$($zip.FullName)"  >> $env:GITHUB_OUTPUT
+            Write-Output "zip_name=$($zip.Name)"       >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Upload NSIS installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dictaku-installer-windows-x64
+          path: ${{ steps.locate-artifacts.outputs.nsis_path }}
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload portable ZIP artifact
+        if: steps.locate-artifacts.outputs.zip_path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: dictaku-portable-windows-x64
+          path: ${{ steps.locate-artifacts.outputs.zip_path }}
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────
+  # Job 3 — Create GitHub Release
+  # ─────────────────────────────────────────────────────────────────
+  create-release:
+    name: Create GitHub Release
+    runs-on: windows-latest
+    timeout-minutes: 30
+    needs: build-dictaku
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout (for CHANGELOG.md)
+        uses: actions/checkout@v4
+
+      - name: Extract changelog section for this tag
+        id: changelog
+        shell: pwsh
+        run: |
+          $tag     = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $content = Get-Content CHANGELOG.md -Raw -ErrorAction SilentlyContinue
+
+          if (-not $content) {
+            "release_notes=No changelog available for $tag." >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          # Extract block between ## [$version] and next ## [
+          $pattern = "(?ms)## \[$([regex]::Escape($version))\][^\n]*\n(.+?)(?=\n## \[|\z)"
+          $m = [regex]::Match($content, $pattern)
+
+          if ($m.Success) {
+            $notes = $m.Groups[1].Value.Trim()
+          } else {
+            $notes = "See CHANGELOG.md for details."
+          }
+
+          # Escape for GITHUB_OUTPUT multiline
+          $notes = $notes -replace '%', '%25' -replace '\r?\n', '%0A'
+          "release_notes=$notes" >> $env:GITHUB_OUTPUT
+
+      - name: Download NSIS installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dictaku-installer-windows-x64
+          path: release-assets
+
+      - name: Download portable ZIP artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dictaku-portable-windows-x64
+          path: release-assets
+        continue-on-error: true
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: dictaku ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body: |
+            ${{ steps.changelog.outputs.release_notes }}
+
+            ---
+            **Installation**
+            1. Download `dictaku_*_x64-setup.exe` and run it.
+            2. Download a Whisper model with `scripts/download-model.ps1`:
+               ```powershell
+               .\download-model.ps1 -Model base
+               ```
+            3. Press `Ctrl+Alt+D` from any app to start dictating.
+
+            **Portable**
+            Extract `dictaku_*_portable.zip` anywhere and run `dictaku.exe`.
+          files: |
+            release-assets/*.exe
+            release-assets/*.zip
+            scripts/download-model.ps1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
