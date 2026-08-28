@@ -216,27 +216,36 @@ pub fn unregister_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(),
     Ok(())
 }
 
-/// Résout le chemin de whisper-cli.exe dans le dossier resources/ de l'app.
+/// Résout le chemin de whisper-cli.exe.
+///
+/// Tauri 2 NSIS place les resources dans `<install_dir>/` (même niveau que l'exe).
+/// En dev, elles sont dans `src-tauri/resources/`.
 fn resolve_whisper_cli() -> PathBuf {
-    // En production Tauri, les resources sont dans le même dossier que l'exe.
-    // En dev, elles sont dans src-tauri/resources/.
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."));
 
-    // Prod : <install_dir>/whisper-cli.exe (Tauri copie les resources à la racine)
-    let prod = exe_dir.join("whisper-cli.exe");
-    if prod.exists() {
-        return prod;
+    // 1. Même dossier que l'exe (prod NSIS)
+    let same_dir = exe_dir.join("whisper-cli.exe");
+    if same_dir.exists() {
+        return same_dir;
     }
 
-    // Dev : src-tauri/resources/whisper-cli.exe
-    exe_dir
-        .ancestors()
-        .find_map(|p| {
-            let candidate = p.join("src-tauri").join("resources").join("whisper-cli.exe");
-            if candidate.exists() { Some(candidate) } else { None }
-        })
-        .unwrap_or(prod)
+    // 2. Sous-dossier resources/ (certaines cibles Tauri)
+    let resources_subdir = exe_dir.join("resources").join("whisper-cli.exe");
+    if resources_subdir.exists() {
+        return resources_subdir;
+    }
+
+    // 3. Dev : src-tauri/resources/whisper-cli.exe (remonte l'arborescence)
+    if let Some(dev_path) = exe_dir.ancestors().find_map(|p| {
+        let candidate = p.join("src-tauri").join("resources").join("whisper-cli.exe");
+        if candidate.exists() { Some(candidate) } else { None }
+    }) {
+        return dev_path;
+    }
+
+    // Fallback : même dossier (le log d'erreur indiquera qu'il est absent)
+    same_dir
 }
