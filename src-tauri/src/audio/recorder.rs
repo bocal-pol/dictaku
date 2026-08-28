@@ -135,7 +135,9 @@ impl AudioRecorder {
         // Thread VAD — lit le buffer, envoie les chunks, détecte le silence.
         let stop_vad = stop_signal.clone();
         std::thread::spawn(move || {
-            let mut last_voice_at = Instant::now();
+            // `last_voice_at` reste None tant qu'aucune voix n'a été détectée.
+            // Le timer de silence ne démarre qu'après le premier sample de voix.
+            let mut last_voice_at: Option<Instant> = None;
             let mut chunk_acc: Vec<f32> = Vec::with_capacity(CHUNK_SIZE);
 
             loop {
@@ -157,15 +159,16 @@ impl AudioRecorder {
 
                     if energy > vad_threshold {
                         // Voix détectée — mise à jour du timestamp.
-                        last_voice_at = Instant::now();
-                    } else if last_voice_at.elapsed() > silence_duration {
-                        // Silence prolongé — fin de la dictée.
-                        info!("VAD : silence détecté — arrêt de la capture");
-                        // Envoie le dernier chunk accumulé si non vide.
-                        if !chunk_acc.is_empty() {
-                            let _ = tx.blocking_send(chunk_acc.clone());
+                        last_voice_at = Some(Instant::now());
+                    } else if let Some(last) = last_voice_at {
+                        if last.elapsed() > silence_duration {
+                            // Silence prolongé après voix — fin de la dictée.
+                            info!("VAD : silence détecté après voix — arrêt de la capture");
+                            if !chunk_acc.is_empty() {
+                                let _ = tx.blocking_send(chunk_acc.clone());
+                            }
+                            break;
                         }
-                        break;
                     }
 
                     chunk_acc.extend_from_slice(&new_samples);

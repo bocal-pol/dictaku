@@ -57,10 +57,7 @@ impl WhisperTranscriber {
         write_wav(&wav_path, samples)?;
         debug!("WAV temporaire écrit : {} ({} samples)", wav_path.display(), samples.len());
 
-        // Chemin du fichier texte produit par whisper-cli (même base, extension .txt).
-        let txt_path = wav_path.with_extension("txt");
-
-        // Lance whisper-cli.exe avec timeout.
+        // Lance whisper-cli.exe avec timeout — le texte est lu sur stdout.
         let output = run_whisper_cli(
             &self.cli_path,
             &self.model_path,
@@ -78,16 +75,26 @@ impl WhisperTranscriber {
             )));
         }
 
-        // Lit le fichier .txt produit par whisper-cli.
-        let text = std::fs::read_to_string(&txt_path).map_err(|e| {
-            DictakuError::Transcription(format!("Lecture du fichier transcription : {e}"))
-        })?;
+        // whisper-cli écrit la transcription sur stdout.
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        debug!("whisper-cli stdout brut : {stdout:?}");
 
-        // Nettoyage explicite du .txt (le .wav est géré par NamedTempFile).
-        let _ = std::fs::remove_file(&txt_path);
+        // Filtrage des lignes de méta-données whisper.cpp (timestamps, [BLANK_AUDIO], etc.)
+        let text = stdout
+            .lines()
+            .filter(|line| {
+                let l = line.trim();
+                !l.is_empty()
+                    && !l.starts_with('[')  // [00:00:00.000 --> ...]
+                    && !l.starts_with("whisper")
+                    && !l.starts_with("system_info")
+                    && !l.starts_with("main:")
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
 
         let trimmed = text.trim().to_string();
-        info!("Transcription : {} caractères", trimmed.len());
+        info!("Transcription : {:?} ({} caractères)", &trimmed[..trimmed.len().min(80)], trimmed.len());
         Ok(trimmed)
     }
 }
@@ -144,8 +151,7 @@ fn run_whisper_cli(
             &lang_str,
             "--file",
             &wav.to_string_lossy(),
-            "--output-txt",
-            "--no-prints",
+            "--no-timestamps",
         ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
