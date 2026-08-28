@@ -55,13 +55,22 @@ jobs:
         if: steps.cache-whisper.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          cmake --build whisper-build --config Release --target whisper-cli -j 4
+          # Build everything in Release config — whisper-cli.exe will be among the outputs
+          cmake --build whisper-build --config Release -j 4
 
       - name: Locate and stage whisper-cli.exe
         if: steps.cache-whisper.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $bin = Get-ChildItem -Recurse -Filter "whisper-cli.exe" whisper-build | Select-Object -First 1
+          # whisper.cpp may name the binary whisper-cli.exe or main.exe depending on version
+          $bin = Get-ChildItem -Recurse -Filter "whisper-cli.exe" whisper-build |
+                 Where-Object { $_.FullName -notmatch '\\CMakeFiles\\' } |
+                 Select-Object -First 1
+          if (-not $bin) {
+            $bin = Get-ChildItem -Recurse -Filter "main.exe" whisper-build |
+                   Where-Object { $_.FullName -notmatch '\\CMakeFiles\\' } |
+                   Select-Object -First 1
+          }
           if (-not $bin) { Write-Error "whisper-cli.exe not found after build"; exit 1 }
           New-Item -ItemType Directory -Force -Path whisper-build/bin | Out-Null
           Copy-Item $bin.FullName whisper-build/bin/whisper-cli.exe
