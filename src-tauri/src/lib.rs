@@ -46,6 +46,13 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .manage(app_state)
+        // Empêche Tauri de quitter quand toutes les fenêtres sont fermées/cachées.
+        // L'app vit dans le tray — seul le menu "Quitter" arrête le process.
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+            }
+        })
         .setup(|app| {
             // Installation du tray icon et du menu contextuel.
             tray::menu::setup_tray(app.handle())
