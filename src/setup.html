@@ -175,12 +175,15 @@
 
 <div class="status" id="status"></div>
 
-<button class="btn" id="btnDownload" onclick="startDownload()">Télécharger et démarrer</button>
+<button class="btn" id="btnDownload">Télécharger et démarrer</button>
+
+<div id="debug" style="font-size:0.7rem;color:rgba(224,240,228,0.3);text-align:center;margin-top:0.5rem;word-break:break-all;max-width:320px"></div>
 
 <script>
 let unlisten = null;
 
 async function startDownload() {
+  const dbg = document.getElementById('debug');
   const model = document.getElementById('modelSelect').value;
   const btn = document.getElementById('btnDownload');
   const progressArea = document.getElementById('progressArea');
@@ -192,20 +195,32 @@ async function startDownload() {
   btn.disabled = true;
   document.getElementById('modelSelect').disabled = true;
   progressArea.classList.add('visible');
-  status.textContent = 'Connexion à HuggingFace…';
+  status.textContent = 'Initialisation…';
   status.className = 'status';
 
+  // Vérification que l'API Tauri est disponible
+  if (!window.__TAURI__) {
+    status.textContent = 'Erreur : API Tauri non disponible (window.__TAURI__ manquant)';
+    status.className = 'status error';
+    if (dbg) dbg.textContent = 'window.__TAURI__ = undefined';
+    btn.disabled = false;
+    document.getElementById('modelSelect').disabled = false;
+    return;
+  }
+  if (dbg) dbg.textContent = 'Tauri OK · invoke: ' + typeof window.__TAURI__.core?.invoke + ' · listen: ' + typeof window.__TAURI__.event?.listen;
+
   try {
-    // Tauri 2 : APIs sur window.__TAURI__.event et window.__TAURI__.core
     const { listen } = window.__TAURI__.event;
     const { invoke } = window.__TAURI__.core;
+
+    status.textContent = 'Connexion en cours…';
 
     unlisten = await listen('dictaku://download-progress', (e) => {
       const { percent, downloaded_mb, total_mb } = e.payload;
       fill.style.width = percent + '%';
       pct.textContent = percent + '%';
       mb.textContent = downloaded_mb.toFixed(1) + ' / ' + total_mb.toFixed(1) + ' MB';
-      if (percent > 0) status.textContent = 'Téléchargement en cours…';
+      status.textContent = 'Téléchargement en cours…';
     });
 
     await invoke('download_model', { model });
@@ -215,19 +230,57 @@ async function startDownload() {
     pct.textContent = '100%';
     status.textContent = 'Modèle installé — Dictaku est prêt !';
     status.className = 'status success';
+    if (dbg) dbg.textContent = '';
 
     btn.textContent = 'Démarrer';
     btn.disabled = false;
-    btn.onclick = () => invoke('close_setup_window');
+    btn.addEventListener('click', () => invoke('close_setup_window'), { once: true });
   } catch (err) {
     if (unlisten) { unlisten(); unlisten = null; }
     status.textContent = 'Erreur : ' + err;
     status.className = 'status error';
+    if (dbg) dbg.textContent = String(err);
     btn.disabled = false;
+    document.getElementById('modelSelect').disabled = false;
     btn.textContent = 'Réessayer';
-    btn.onclick = startDownload;
   }
 }
+
+// Attacher le listener une fois le DOM chargé
+document.addEventListener('DOMContentLoaded', async () => {
+  const btn = document.getElementById('btnDownload');
+  btn.addEventListener('click', startDownload);
+
+  // Vérifier si le modèle est déjà présent → passer directement à l'écran "Démarrer"
+  if (window.__TAURI__) {
+    try {
+      const { invoke } = window.__TAURI__.core;
+      const model = document.getElementById('modelSelect').value;
+      const exists = await invoke('check_model_exists', { model });
+      if (exists) {
+        // Modèle déjà là — afficher directement l'état "prêt"
+        const progressArea = document.getElementById('progressArea');
+        const fill = document.getElementById('progressFill');
+        const pct = document.getElementById('progressPct');
+        const mb = document.getElementById('progressMB');
+        const status = document.getElementById('status');
+
+        progressArea.classList.add('visible');
+        fill.style.width = '100%';
+        pct.textContent = '100%';
+        mb.textContent = 'Modèle déjà présent';
+        status.textContent = 'Modèle détecté — Dictaku est prêt !';
+        status.className = 'status success';
+
+        btn.textContent = 'Démarrer';
+        btn.removeEventListener('click', startDownload);
+        btn.addEventListener('click', () => invoke('close_setup_window'), { once: true });
+      }
+    } catch (_) {
+      // Erreur silencieuse — l'utilisateur pourra cliquer sur "Télécharger"
+    }
+  }
+});
 </script>
 </body>
 </html>
