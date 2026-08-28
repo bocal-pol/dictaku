@@ -178,8 +178,6 @@
 <button class="btn" id="btnDownload" onclick="startDownload()">Télécharger et démarrer</button>
 
 <script>
-const { invoke, event } = window.__TAURI__;
-
 let unlisten = null;
 
 async function startDownload() {
@@ -197,18 +195,21 @@ async function startDownload() {
   status.textContent = 'Connexion à HuggingFace…';
   status.className = 'status';
 
-  // Écoute les événements de progression émis par le backend Rust.
-  unlisten = await event.listen('dictaku://download-progress', (e) => {
-    const { percent, downloaded_mb, total_mb } = e.payload;
-    fill.style.width = percent + '%';
-    pct.textContent = percent + '%';
-    mb.textContent = downloaded_mb.toFixed(1) + ' / ' + total_mb.toFixed(1) + ' MB';
-    if (percent > 0) status.textContent = 'Téléchargement en cours…';
-  });
-
   try {
+    // Tauri 2 : APIs sur window.__TAURI__.event et window.__TAURI__.core
+    const { listen } = window.__TAURI__.event;
+    const { invoke } = window.__TAURI__.core;
+
+    unlisten = await listen('dictaku://download-progress', (e) => {
+      const { percent, downloaded_mb, total_mb } = e.payload;
+      fill.style.width = percent + '%';
+      pct.textContent = percent + '%';
+      mb.textContent = downloaded_mb.toFixed(1) + ' / ' + total_mb.toFixed(1) + ' MB';
+      if (percent > 0) status.textContent = 'Téléchargement en cours…';
+    });
+
     await invoke('download_model', { model });
-    if (unlisten) unlisten();
+    if (unlisten) { unlisten(); unlisten = null; }
 
     fill.style.width = '100%';
     pct.textContent = '100%';
@@ -219,7 +220,7 @@ async function startDownload() {
     btn.disabled = false;
     btn.onclick = () => invoke('close_setup_window');
   } catch (err) {
-    if (unlisten) unlisten();
+    if (unlisten) { unlisten(); unlisten = null; }
     status.textContent = 'Erreur : ' + err;
     status.className = 'status error';
     btn.disabled = false;
