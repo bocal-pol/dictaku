@@ -13,9 +13,20 @@ use crate::stt::whisper::WhisperTranscriber;
 const DEFAULT_SHORTCUT: &str = "ctrl+alt+d";
 
 pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), DictakuError> {
-    let shortcut: Shortcut = DEFAULT_SHORTCUT
+    // Lit le raccourci depuis la config — fallback sur DEFAULT_SHORTCUT si absent.
+    let hotkey_str = {
+        let state = app.state::<AppState>();
+        let config = state.config.blocking_lock();
+        if config.hotkey.is_empty() {
+            DEFAULT_SHORTCUT.to_string()
+        } else {
+            config.hotkey.clone()
+        }
+    };
+
+    let shortcut: Shortcut = hotkey_str
         .parse()
-        .map_err(|_| DictakuError::HotkeyRegistration(format!("Raccourci invalide : {DEFAULT_SHORTCUT}")))?;
+        .map_err(|_| DictakuError::HotkeyRegistration(format!("Raccourci invalide : {hotkey_str}")))?;
 
     // stop_signal partagé entre le handler et le pipeline en cours.
     let active_stop: Arc<Mutex<Option<Arc<Mutex<bool>>>>> = Arc::new(Mutex::new(None));
