@@ -117,7 +117,8 @@ jobs:
         run: cargo install tauri-cli --version "^2" --locked
 
       - name: Generate icon set from source PNG
-        run: cargo tauri icon src-tauri/icons/icon.png
+        working-directory: src-tauri
+        run: cargo tauri icon icons/icon.png
 
       - name: cargo build --release
         working-directory: src-tauri
