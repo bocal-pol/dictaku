@@ -113,6 +113,12 @@ jobs:
             [byte[]](0x4D,0x5A)
           )
 
+      - name: Install Tauri CLI (for icon generation)
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Generate icon set from source PNG
+        run: cargo tauri icon src-tauri/icons/icon.png
+
       - name: cargo build --release
         working-directory: src-tauri
         run: cargo build --release
