@@ -1,17 +1,11 @@
 use sha2::{Digest, Sha256};
-use std::io::Read;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
 use crate::config::settings::{Settings, WhisperModel};
 use crate::error::{DictakuError, Result};
 
-/// Gestion du cycle de vie des modèles Whisper GGML.
-///
-/// Responsabilités :
-/// - Vérifier la présence locale d'un modèle
-/// - Télécharger depuis HuggingFace avec vérification SHA256
-/// - Retourner le chemin résolu pour l'utilisation par WhisperTranscriber
 pub struct ModelManager {
     models_dir: PathBuf,
 }
@@ -23,18 +17,15 @@ impl ModelManager {
         }
     }
 
-    /// Retourne le chemin complet d'un modèle s'il existe localement.
     pub fn model_path(&self, model: &WhisperModel) -> PathBuf {
         self.models_dir.join(model.filename())
     }
 
-    /// Vérifie si le modèle est présent et son SHA256 est correct.
     pub fn is_model_available(&self, model: &WhisperModel) -> bool {
         let path = self.model_path(model);
         if !path.exists() {
             return false;
         }
-        // Vérification rapide de taille (les modèles font plusieurs Mo).
         match path.metadata() {
             Ok(meta) if meta.len() > 1_000_000 => true,
             _ => {
@@ -44,23 +35,26 @@ impl ModelManager {
         }
     }
 
-    /// Télécharge un modèle Whisper depuis HuggingFace.
+    /// Télécharge un modèle avec suivi de progression.
     ///
-    /// Étapes :
-    ///   1. Crée le dossier modèles si absent
-    ///   2. Télécharge via reqwest (streaming pour économiser la RAM)
-    ///   3. Calcule le SHA256 du fichier téléchargé
-    ///   4. Compare avec la valeur hardcodée
-    ///   5. Garde le fichier si valide, supprime sinon
-    pub fn download(&self, model: &WhisperModel) -> Result<PathBuf> {
+    /// `on_progress(percent: u8, downloaded_mb: f64, total_mb: f64)` est appelé
+    /// régulièrement pendant le téléchargement pour mettre à jour l'UI.
+    pub fn download_with_progress<F>(
+        &self,
+        model: &WhisperModel,
+        mut on_progress: F,
+    ) -> Result<PathBuf>
+    where
+        F: FnMut(u8, f64, f64),
+    {
         let dest_path = self.model_path(model);
 
         if self.is_model_available(model) {
             info!("Modèle déjà présent : {}", dest_path.display());
+            on_progress(100, 0.0, 0.0);
             return Ok(dest_path);
         }
 
-        // Création du dossier de destination.
         std::fs::create_dir_all(&self.models_dir).map_err(|e| {
             DictakuError::ModelDownload(format!(
                 "Création dossier modèles {} : {e}",
@@ -71,8 +65,7 @@ impl ModelManager {
         let url = model.download_url();
         info!("Téléchargement modèle {} depuis : {url}", model.filename());
 
-        // Téléchargement bloquant (appel depuis un thread Tokio via spawn_blocking).
-        let response = reqwest::blocking::get(url).map_err(|e| {
+        let mut response = reqwest::blocking::get(url).map_err(|e| {
             DictakuError::ModelDownload(format!("Requête HTTP échouée : {e}"))
         })?;
 
@@ -83,35 +76,76 @@ impl ModelManager {
             )));
         }
 
-        let bytes = response.bytes().map_err(|e| {
-            DictakuError::ModelDownload(format!("Lecture du corps de réponse : {e}"))
+        let total = response.content_length().unwrap_or(0);
+        let total_mb = total as f64 / 1_048_576.0;
+
+        // Téléchargement streaming vers un fichier temporaire.
+        let tmp_path = dest_path.with_extension("bin.tmp");
+        let mut file = std::fs::File::create(&tmp_path).map_err(|e| {
+            DictakuError::ModelDownload(format!("Création fichier temporaire : {e}"))
         })?;
 
-        info!("Téléchargement terminé : {} octets", bytes.len());
+        let mut hasher = Sha256::new();
+        let mut downloaded: u64 = 0;
+        let mut last_pct: u8 = 0;
+        let mut buf = vec![0u8; 65_536]; // chunks de 64 KB
 
-        // Vérification de l'intégrité SHA256 avant d'écrire le fichier final.
-        let computed = compute_sha256(&bytes);
+        loop {
+            let n = std::io::Read::read(&mut response, &mut buf).map_err(|e| {
+                DictakuError::ModelDownload(format!("Lecture flux HTTP : {e}"))
+            })?;
+            if n == 0 {
+                break;
+            }
+            let chunk = &buf[..n];
+            file.write_all(chunk).map_err(|e| {
+                DictakuError::ModelDownload(format!("Écriture fichier : {e}"))
+            })?;
+            hasher.update(chunk);
+            downloaded += n as u64;
+
+            if total > 0 {
+                let pct = ((downloaded * 100) / total) as u8;
+                if pct != last_pct {
+                    last_pct = pct;
+                    let dl_mb = downloaded as f64 / 1_048_576.0;
+                    on_progress(pct, dl_mb, total_mb);
+                }
+            }
+        }
+
+        file.flush().map_err(|e| {
+            DictakuError::ModelDownload(format!("Flush fichier : {e}"))
+        })?;
+        drop(file);
+
+        // Vérification SHA256.
+        let computed = hex::encode(hasher.finalize());
         let expected = model.expected_sha256();
-
-        debug!("SHA256 calculé  : {computed}");
-        debug!("SHA256 attendu  : {expected}");
+        debug!("SHA256 calculé : {computed}");
+        debug!("SHA256 attendu : {expected}");
 
         if computed != expected {
-            warn!("SHA256 invalide pour {} — fichier potentiellement corrompu", model.filename());
+            let _ = std::fs::remove_file(&tmp_path);
+            warn!("SHA256 invalide pour {}", model.filename());
             return Err(DictakuError::ModelChecksum);
         }
 
-        // Écriture du fichier.
-        std::fs::write(&dest_path, &bytes).map_err(|e| {
-            DictakuError::ModelDownload(format!("Écriture {} : {e}", dest_path.display()))
+        std::fs::rename(&tmp_path, &dest_path).map_err(|e| {
+            DictakuError::ModelDownload(format!("Déplacement fichier final : {e}"))
         })?;
 
-        info!("Modèle installé avec succès : {}", dest_path.display());
+        on_progress(100, total_mb, total_mb);
+        info!("Modèle installé : {}", dest_path.display());
         Ok(dest_path)
+    }
+
+    /// Version sans progression (compatibilité).
+    pub fn download(&self, model: &WhisperModel) -> Result<PathBuf> {
+        self.download_with_progress(model, |_, _, _| {})
     }
 }
 
-/// Calcule le SHA256 d'un slice d'octets et retourne la représentation hexadécimale.
 fn compute_sha256(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);

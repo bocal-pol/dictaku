@@ -1,4 +1,4 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tracing::{debug, info};
 
 use crate::config::settings::{Settings, WhisperModel};
@@ -90,13 +90,13 @@ pub async fn save_settings(
 
 /// Lance le téléchargement d'un modèle Whisper en tâche de fond.
 ///
-/// Émet des événements `dictaku://download-progress` vers la WebView
-/// avec la progression en pourcentage.
+/// Émet des événements `dictaku://download-progress` vers la WebView :
+/// `{ percent: u8, downloaded_mb: f64, total_mb: f64 }`
 #[tauri::command]
 pub async fn download_model(
     model: String,
     state: tauri::State<'_, AppState>,
-    _app: AppHandle,
+    app: AppHandle,
 ) -> Result<(), String> {
     let whisper_model = parse_model(&model)?;
     info!("IPC download_model : {model}");
@@ -104,18 +104,31 @@ pub async fn download_model(
     let config = state.config.lock().await.clone();
     let manager = ModelManager::new(&config);
 
-    // Lancement du téléchargement dans un thread bloquant dédié
-    // pour ne pas bloquer l'executor Tokio.
     tokio::task::spawn_blocking(move || {
-        manager.download(&whisper_model).map(|path| {
-            info!("Modèle installé : {}", path.display());
-            // TODO: émettre download-progress(100) et download-complete
+        manager.download_with_progress(&whisper_model, |percent, downloaded_mb, total_mb| {
+            let _ = app.emit(
+                "dictaku://download-progress",
+                serde_json::json!({
+                    "percent": percent,
+                    "downloaded_mb": downloaded_mb,
+                    "total_mb": total_mb,
+                }),
+            );
         })
     })
     .await
     .map_err(|e| format!("Erreur interne spawn_blocking : {e}"))?
     .map_err(|e| e.to_string())?;
 
+    Ok(())
+}
+
+/// Ferme la fenêtre de setup initial et bascule en mode tray.
+#[tauri::command]
+pub async fn close_setup_window(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("setup") {
+        win.close().map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

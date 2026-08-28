@@ -62,6 +62,19 @@ pub fn run() {
             hotkey::manager::register_global_shortcut(app)
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
+            // Détection du modèle Whisper — ouvre la fenêtre de setup si absent.
+            {
+                let config = app.state::<AppState>().config.blocking_lock().clone();
+                let manager = stt::model_manager::ModelManager::new(&config);
+                if !manager.is_model_available(&config.model) {
+                    info!("Modèle Whisper absent — ouverture de la fenêtre de setup");
+                    if let Some(win) = app.get_webview_window("setup") {
+                        win.show().ok();
+                        win.set_focus().ok();
+                    }
+                }
+            }
+
             info!("Setup Tauri terminé — application en attente dans le tray");
             Ok(())
         })
@@ -72,6 +85,7 @@ pub fn run() {
             ipc::commands::save_settings,
             ipc::commands::download_model,
             ipc::commands::check_model_exists,
+            ipc::commands::close_setup_window,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur critique lors du démarrage de l'application Tauri");

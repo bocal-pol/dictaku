@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Dictaku — Configuration initiale</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #081408;
+    color: #e0f0e4;
+    font-family: Inter, system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    padding: 2rem;
+    gap: 1.5rem;
+  }
+
+  .icon {
+    width: 56px;
+    height: 56px;
+    background: #0f2410;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  h1 {
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: #e0f0e4;
+    text-align: center;
+  }
+
+  p {
+    font-size: 0.8125rem;
+    color: rgba(224,240,228,0.55);
+    text-align: center;
+    line-height: 1.6;
+    max-width: 320px;
+  }
+
+  .model-select {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    max-width: 320px;
+  }
+
+  .model-select label {
+    font-size: 0.75rem;
+    color: rgba(224,240,228,0.45);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  select {
+    background: #0f2410;
+    border: 1px solid rgba(74,154,90,0.25);
+    border-radius: 8px;
+    color: #e0f0e4;
+    font-size: 0.875rem;
+    padding: 0.6rem 0.875rem;
+    width: 100%;
+    cursor: pointer;
+    appearance: none;
+    outline: none;
+  }
+
+  select:focus {
+    border-color: #4a9a5a;
+  }
+
+  .btn {
+    background: #4a9a5a;
+    border: none;
+    border-radius: 8px;
+    color: #081408;
+    font-size: 0.875rem;
+    font-weight: 600;
+    padding: 0.7rem 2rem;
+    cursor: pointer;
+    width: 100%;
+    max-width: 320px;
+    transition: background 0.15s;
+  }
+
+  .btn:hover:not(:disabled) { background: #3d8a4c; }
+  .btn:disabled { background: #1f4a28; color: rgba(224,240,228,0.35); cursor: not-allowed; }
+
+  .progress-area {
+    width: 100%;
+    max-width: 320px;
+    display: none;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .progress-area.visible { display: flex; }
+
+  .progress-bar-track {
+    background: #0f2410;
+    border-radius: 100px;
+    height: 6px;
+    overflow: hidden;
+  }
+
+  .progress-bar-fill {
+    background: #4a9a5a;
+    border-radius: 100px;
+    height: 100%;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+
+  .progress-label {
+    font-size: 0.75rem;
+    color: rgba(224,240,228,0.5);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .status {
+    font-size: 0.8rem;
+    color: rgba(224,240,228,0.55);
+    text-align: center;
+    min-height: 1.2em;
+  }
+
+  .status.error { color: #f87171; }
+  .status.success { color: #4a9a5a; }
+</style>
+</head>
+<body>
+
+<div class="icon">
+  <svg width="32" height="32" viewBox="0 0 34 34" fill="none">
+    <rect x="12" y="4" width="10" height="16" rx="5" stroke="#4a9a5a" stroke-width="1.5" fill="none"/>
+    <path d="M7 18 Q7 26 17 26 Q27 26 27 18" stroke="#4a9a5a" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <line x1="17" y1="26" x2="17" y2="30" stroke="#2a6a3a" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="13" y1="30" x2="21" y2="30" stroke="#2a6a3a" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="10" y1="14" x2="7" y2="14" stroke="#4a9a5a" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+    <line x1="10" y1="17" x2="6" y2="17" stroke="#4a9a5a" stroke-width="1" stroke-linecap="round" opacity="0.35"/>
+    <line x1="10" y1="11" x2="6" y2="11" stroke="#4a9a5a" stroke-width="1" stroke-linecap="round" opacity="0.2"/>
+  </svg>
+</div>
+
+<h1>Bienvenue dans Dictaku</h1>
+
+<p>Un modèle de reconnaissance vocale est requis pour fonctionner.<br>Il sera téléchargé une seule fois (~74 MB).</p>
+
+<div class="model-select">
+  <label>Modèle Whisper</label>
+  <select id="modelSelect">
+    <option value="tiny">Tiny — 39 MB · rapide, moins précis</option>
+    <option value="base" selected>Base — 74 MB · équilibre recommandé</option>
+    <option value="small">Small — 244 MB · meilleure précision</option>
+  </select>
+</div>
+
+<div class="progress-area" id="progressArea">
+  <div class="progress-bar-track">
+    <div class="progress-bar-fill" id="progressFill"></div>
+  </div>
+  <div class="progress-label">
+    <span id="progressPct">0%</span>
+    <span id="progressMB">0 MB</span>
+  </div>
+</div>
+
+<div class="status" id="status"></div>
+
+<button class="btn" id="btnDownload" onclick="startDownload()">Télécharger et démarrer</button>
+
+<script>
+const { invoke, event } = window.__TAURI__;
+
+let unlisten = null;
+
+async function startDownload() {
+  const model = document.getElementById('modelSelect').value;
+  const btn = document.getElementById('btnDownload');
+  const progressArea = document.getElementById('progressArea');
+  const fill = document.getElementById('progressFill');
+  const pct = document.getElementById('progressPct');
+  const mb = document.getElementById('progressMB');
+  const status = document.getElementById('status');
+
+  btn.disabled = true;
+  document.getElementById('modelSelect').disabled = true;
+  progressArea.classList.add('visible');
+  status.textContent = 'Connexion à HuggingFace…';
+  status.className = 'status';
+
+  // Écoute les événements de progression émis par le backend Rust.
+  unlisten = await event.listen('dictaku://download-progress', (e) => {
+    const { percent, downloaded_mb, total_mb } = e.payload;
+    fill.style.width = percent + '%';
+    pct.textContent = percent + '%';
+    mb.textContent = downloaded_mb.toFixed(1) + ' / ' + total_mb.toFixed(1) + ' MB';
+    if (percent > 0) status.textContent = 'Téléchargement en cours…';
+  });
+
+  try {
+    await invoke('download_model', { model });
+    if (unlisten) unlisten();
+
+    fill.style.width = '100%';
+    pct.textContent = '100%';
+    status.textContent = 'Modèle installé — Dictaku est prêt !';
+    status.className = 'status success';
+
+    btn.textContent = 'Démarrer';
+    btn.disabled = false;
+    btn.onclick = () => invoke('close_setup_window');
+  } catch (err) {
+    if (unlisten) unlisten();
+    status.textContent = 'Erreur : ' + err;
+    status.className = 'status error';
+    btn.disabled = false;
+    btn.textContent = 'Réessayer';
+    btn.onclick = startDownload;
+  }
+}
+</script>
+</body>
+</html>
