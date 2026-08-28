@@ -1,5 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleRate, Stream, StreamConfig};
+use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -87,8 +88,9 @@ impl AudioRecorder {
 
         info!("Microphone sélectionné : {}", device.name().unwrap_or_default());
 
-        let config = build_stream_config(&device)?;
-        debug!("Config audio : {:?}", config);
+        let (config, native_rate) = build_stream_config(&device)?;
+        let native_channels = config.channels;
+        debug!("Config audio : {:?} (native {}Hz, target {}Hz)", config, native_rate, TARGET_SAMPLE_RATE);
 
         let (tx, rx) = mpsc::channel::<Vec<f32>>(32);
         let stop_signal = Arc::new(Mutex::new(false));
@@ -109,8 +111,14 @@ impl AudioRecorder {
             .build_input_stream(
                 &config,
                 move |data: &[f32], _info| {
+                    // Resampling inline si nécessaire (native_rate → 16kHz).
+                    let resampled = if native_rate != TARGET_SAMPLE_RATE || native_channels > 1 {
+                        resample_to_16k(data, native_rate, native_channels)
+                    } else {
+                        data.to_vec()
+                    };
                     if let Ok(mut buf) = buffer_clone.lock() {
-                        buf.extend_from_slice(data);
+                        buf.extend_from_slice(&resampled);
                     }
                 },
                 move |err| {
@@ -198,34 +206,99 @@ impl AudioRecorder {
     }
 }
 
-/// Construit une `StreamConfig` 16kHz mono compatible Whisper.
+/// Construit une `StreamConfig` au taux natif du device.
 ///
-/// Si le device ne supporte pas exactement 16kHz, retourne une erreur explicite
-/// car un resampling en temps réel n'est pas implémenté en v0.1.
-fn build_stream_config(device: &Device) -> Result<StreamConfig> {
-    let supported = device
+/// On capture au taux supporté par le device puis on rééchantillonne à 16kHz
+/// pour Whisper. Cela évite l'erreur "stream configuration not supported".
+fn build_stream_config(device: &Device) -> Result<(StreamConfig, u32)> {
+    let supported: Vec<_> = device
         .supported_input_configs()
-        .map_err(|e| DictakuError::AudioCapture(format!("Configs supportées : {e}")))?;
+        .map_err(|e| DictakuError::AudioCapture(format!("Configs supportées : {e}")))?
+        .collect();
 
-    for range in supported {
+    // Priorité 1 : 16kHz mono exact
+    for range in &supported {
         if range.channels() == CHANNELS
             && range.min_sample_rate().0 <= TARGET_SAMPLE_RATE
             && range.max_sample_rate().0 >= TARGET_SAMPLE_RATE
         {
-            return Ok(StreamConfig {
+            let native_rate = TARGET_SAMPLE_RATE;
+            return Ok((StreamConfig {
                 channels: CHANNELS,
-                sample_rate: SampleRate(TARGET_SAMPLE_RATE),
+                sample_rate: SampleRate(native_rate),
                 buffer_size: cpal::BufferSize::Default,
-            });
+            }, native_rate));
         }
     }
 
-    // Fallback : essaye quand même avec la config cible — certains drivers
-    // acceptent 16kHz même si `supported_input_configs` le signale mal.
-    warn!("16kHz non listé dans les configs supportées — tentative forcée");
-    Ok(StreamConfig {
-        channels: CHANNELS,
-        sample_rate: SampleRate(TARGET_SAMPLE_RATE),
-        buffer_size: cpal::BufferSize::Default,
-    })
+    // Priorité 2 : mono à n'importe quel taux (on resamplre ensuite)
+    for range in &supported {
+        if range.channels() == CHANNELS {
+            let native_rate = range.max_sample_rate().0;
+            info!("16kHz non supporté — capture à {}Hz + resampling", native_rate);
+            return Ok((StreamConfig {
+                channels: CHANNELS,
+                sample_rate: SampleRate(native_rate),
+                buffer_size: cpal::BufferSize::Default,
+            }, native_rate));
+        }
+    }
+
+    // Priorité 3 : stéréo (on mixe les canaux)
+    for range in &supported {
+        let native_rate = range.max_sample_rate().0;
+        let channels = range.channels();
+        info!("Capture stéréo {}ch à {}Hz + downmix + resampling", channels, native_rate);
+        return Ok((StreamConfig {
+            channels,
+            sample_rate: SampleRate(native_rate),
+            buffer_size: cpal::BufferSize::Default,
+        }, native_rate));
+    }
+
+    Err(DictakuError::AudioCapture("Aucune configuration audio supportée".into()))
+}
+
+/// Rééchantillonne des samples f32 de `from_rate` Hz vers 16kHz mono.
+fn resample_to_16k(samples: &[f32], from_rate: u32, channels: u16) -> Vec<f32> {
+    // Downmix stéréo → mono
+    let mono: Vec<f32> = if channels > 1 {
+        samples
+            .chunks(channels as usize)
+            .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+            .collect()
+    } else {
+        samples.to_vec()
+    };
+
+    if from_rate == TARGET_SAMPLE_RATE {
+        return mono;
+    }
+
+    let params = SincInterpolationParameters {
+        sinc_len: 128,
+        f_cutoff: 0.95,
+        interpolation: SincInterpolationType::Linear,
+        oversampling_factor: 64,
+        window: WindowFunction::BlackmanHarris2,
+    };
+
+    let ratio = TARGET_SAMPLE_RATE as f64 / from_rate as f64;
+    let chunk_size = mono.len().max(1);
+
+    let mut resampler = match SincFixedIn::<f32>::new(ratio, 2.0, params, chunk_size, 1) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("Resampler init échoué ({e}) — retour mono sans resampling");
+            return mono;
+        }
+    };
+
+    match resampler.process(&[&mono], None) {
+        Ok(out) => out.into_iter().next().unwrap_or_default(),
+        Err(e) => {
+            warn!("Resampling échoué ({e}) — retour mono sans resampling");
+            mono
+        }
+    }
 }
