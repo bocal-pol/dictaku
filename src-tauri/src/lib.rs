@@ -12,24 +12,35 @@ pub mod tray;
 use state::app_state::AppState;
 use tauri::Manager;
 use tracing::info;
+use tracing_subscriber::prelude::*;
 
-/// Point d'entrée de la bibliothèque — appelé depuis `main.rs`.
-///
-/// Initialise l'ensemble de la stack Tauri :
-/// 1. Tracing (log vers stderr, filtre depuis RUST_LOG ou info par défaut)
-/// 2. Configuration utilisateur (créée avec les defaults si absente)
-/// 3. AppState partagé via `tauri::Manager`
-/// 4. Plugins Tauri (global-shortcut, notification, shell)
-/// 5. Tray icon + menu contextuel
-/// 6. Commandes IPC exposées à la WebView
 pub fn run() {
-    // Initialisation du subscriber tracing. Utilise RUST_LOG si défini,
-    // sinon `info` pour la release, `debug` pour le dev.
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("dictaku=info")),
-        )
+    // Dossier de log : %APPDATA%\dictaku\dictaku\
+    let log_dir = directories::ProjectDirs::from("com", "dictaku", "dictaku")
+        .map(|p| p.config_dir().to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    // Écriture dans dictaku.log (rotation : jamais — fichier unique, écrasé au démarrage).
+    let log_path = log_dir.join("dictaku.log");
+    let log_file = std::fs::File::create(&log_path)
+        .expect("impossible de créer le fichier de log");
+
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("dictaku=debug"));
+
+    // Layer fichier (debug complet) + layer stderr (info uniquement).
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_ansi(false)
+        .with_writer(std::sync::Mutex::new(log_file));
+
+    let stderr_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr);
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(file_layer)
+        .with(stderr_layer)
         .init();
 
     info!("Dictaku v{} démarrage", env!("CARGO_PKG_VERSION"));
