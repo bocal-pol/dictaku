@@ -1,6 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleRate, Stream, StreamConfig};
-use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
+use rubato::{Resampler, SincFixedOut, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -105,20 +105,14 @@ impl AudioRecorder {
         let vad_threshold = self.vad.threshold;
         let silence_duration = self.vad.silence_duration;
 
-        // Callback cpal — exécuté dans un thread temps-réel OS.
-        // Doit être minimal : pas d'allocation, pas de mutex contention longue.
+        // Callback cpal — stocke les samples bruts au taux natif.
+        // Pas de resampling ici : le callback doit rester minimal (thread RT).
         let stream = device
             .build_input_stream(
                 &config,
                 move |data: &[f32], _info| {
-                    // Resampling inline si nécessaire (native_rate → 16kHz).
-                    let resampled = if native_rate != TARGET_SAMPLE_RATE || native_channels > 1 {
-                        resample_to_16k(data, native_rate, native_channels)
-                    } else {
-                        data.to_vec()
-                    };
                     if let Ok(mut buf) = buffer_clone.lock() {
-                        buf.extend_from_slice(&resampled);
+                        buf.extend_from_slice(data);
                     }
                 },
                 move |err| {
@@ -140,65 +134,60 @@ impl AudioRecorder {
             drop(sendable_stream);
         });
 
-        // Thread VAD — lit le buffer, envoie les chunks, détecte le silence.
+        // Thread VAD — accumule les samples bruts (taux natif), détecte le silence,
+        // puis rééchantillonne le buffer complet en 16kHz avant d'envoyer à Whisper.
         let stop_vad = stop_signal.clone();
         std::thread::spawn(move || {
-            // `last_voice_at` reste None tant qu'aucune voix n'a été détectée.
-            // Le timer de silence ne démarre qu'après le premier sample de voix.
             let mut last_voice_at: Option<Instant> = None;
-            let mut chunk_acc: Vec<f32> = Vec::with_capacity(CHUNK_SIZE);
+            // Accumule les samples bruts au taux natif du device.
+            let mut raw_acc: Vec<f32> = Vec::new();
+            // Timeout max de sécurité : 30s de capture.
+            let started_at = Instant::now();
 
             loop {
-                // Vérification du signal d'arrêt externe (annulation par l'utilisateur).
                 if *stop_vad.lock().unwrap() {
                     debug!("VAD : signal d'arrêt reçu");
                     break;
                 }
 
-                // Récupération des samples depuis le buffer partagé.
+                // Timeout de sécurité.
+                if started_at.elapsed().as_secs() > 30 {
+                    info!("VAD : timeout 30s — envoi forcé");
+                    break;
+                }
+
                 let new_samples: Vec<f32> = {
                     let mut buf = shared_buffer.lock().unwrap();
-                    let drained: Vec<f32> = buf.drain(..).collect();
-                    drained
+                    buf.drain(..).collect()
                 };
 
                 if !new_samples.is_empty() {
+                    // VAD sur samples bruts — le seuil RMS est indépendant du taux.
                     let energy = rms(&new_samples);
-
                     if energy > vad_threshold {
-                        // Voix détectée — mise à jour du timestamp.
                         last_voice_at = Some(Instant::now());
                     } else if let Some(last) = last_voice_at {
                         if last.elapsed() > silence_duration {
-                            // Silence prolongé après voix — fin de la dictée.
-                            info!("VAD : silence détecté après voix — arrêt de la capture");
-                            if !chunk_acc.is_empty() {
-                                let _ = tx.blocking_send(chunk_acc.clone());
-                            }
+                            info!("VAD : silence détecté — {} samples bruts accumulés", raw_acc.len());
+                            raw_acc.extend_from_slice(&new_samples);
                             break;
                         }
                     }
-
-                    chunk_acc.extend_from_slice(&new_samples);
-
-                    // Envoi par chunks de taille fixe pour pipeline fluide.
-                    while chunk_acc.len() >= CHUNK_SIZE {
-                        let chunk: Vec<f32> = chunk_acc.drain(..CHUNK_SIZE).collect();
-                        if tx.blocking_send(chunk).is_err() {
-                            // Le receiver est fermé — arrêt propre.
-                            debug!("VAD : receiver fermé, arrêt");
-                            // Signal au gardien de stream de dropper.
-                            let _ = stream_drop_tx.send(());
-                            return;
-                        }
-                    }
+                    raw_acc.extend_from_slice(&new_samples);
                 }
 
-                // Pause courte pour ne pas saturer le CPU.
-                // 10ms = latence max acceptable pour la VAD temps réel.
                 std::thread::sleep(Duration::from_millis(10));
             }
-            // Signal au gardien de stream de dropper proprement.
+
+            // Rééchantillonnage du buffer complet → 16kHz mono pour Whisper.
+            if !raw_acc.is_empty() {
+                let resampled = resample_to_16k(&raw_acc, native_rate, native_channels);
+                info!("Resampling : {} → {} samples ({}Hz → 16kHz)", raw_acc.len(), resampled.len(), native_rate);
+                if !resampled.is_empty() {
+                    let _ = tx.blocking_send(resampled);
+                }
+            }
+
             let _ = stream_drop_tx.send(());
         });
 
@@ -259,9 +248,12 @@ fn build_stream_config(device: &Device) -> Result<(StreamConfig, u32)> {
     Err(DictakuError::AudioCapture("Aucune configuration audio supportée".into()))
 }
 
-/// Rééchantillonne des samples f32 de `from_rate` Hz vers 16kHz mono.
+/// Rééchantillonne un buffer f32 de `from_rate`Hz vers TARGET_SAMPLE_RATE (16kHz), mono.
+///
+/// Pipeline : downmix multicanal → mono, puis SincFixedOut si le taux diffère.
+/// Traite le buffer complet en une passe — ne pas appeler dans le callback RT.
 fn resample_to_16k(samples: &[f32], from_rate: u32, channels: u16) -> Vec<f32> {
-    // Downmix stéréo → mono
+    // Downmix vers mono.
     let mono: Vec<f32> = if channels > 1 {
         samples
             .chunks(channels as usize)
@@ -275,29 +267,36 @@ fn resample_to_16k(samples: &[f32], from_rate: u32, channels: u16) -> Vec<f32> {
         return mono;
     }
 
+    let ratio = TARGET_SAMPLE_RATE as f64 / from_rate as f64;
+    let out_len = (mono.len() as f64 * ratio).ceil() as usize;
+
     let params = SincInterpolationParameters {
-        sinc_len: 128,
+        sinc_len: 64,
         f_cutoff: 0.95,
         interpolation: SincInterpolationType::Linear,
-        oversampling_factor: 64,
+        oversampling_factor: 32,
         window: WindowFunction::BlackmanHarris2,
     };
 
-    let ratio = TARGET_SAMPLE_RATE as f64 / from_rate as f64;
-    let chunk_size = mono.len().max(1);
-
-    let mut resampler = match SincFixedIn::<f32>::new(ratio, 2.0, params, chunk_size, 1) {
+    let mut resampler = match SincFixedOut::<f32>::new(ratio, 2.0, params, out_len, 1) {
         Ok(r) => r,
         Err(e) => {
-            warn!("Resampler init échoué ({e}) — retour mono sans resampling");
+            warn!("Resampler init échoué ({e}) — audio retourné sans resampling");
             return mono;
         }
     };
 
-    match resampler.process(&[&mono], None) {
+    // Padding si le buffer est plus petit que ce qu'attend le resampler.
+    let needed = resampler.input_frames_next();
+    let mut padded = mono.clone();
+    if padded.len() < needed {
+        padded.resize(needed, 0.0);
+    }
+
+    match resampler.process(&[&padded], None) {
         Ok(out) => out.into_iter().next().unwrap_or_default(),
         Err(e) => {
-            warn!("Resampling échoué ({e}) — retour mono sans resampling");
+            warn!("Resampling échoué ({e}) — audio retourné sans resampling");
             mono
         }
     }
