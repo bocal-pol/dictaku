@@ -3,7 +3,7 @@
   "identifier": "default",
   "description": "Capabilities par défaut de Dictaku — surface IPC minimale",
   "local": true,
-  "windows": ["main", "settings"],
+  "windows": ["main", "settings", "setup"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
