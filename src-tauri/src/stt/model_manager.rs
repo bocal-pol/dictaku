@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::{debug, info, warn};
 
 use crate::config::settings::{Settings, WhisperModel};

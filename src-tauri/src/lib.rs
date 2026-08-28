@@ -10,6 +10,7 @@ pub mod stt;
 pub mod tray;
 
 use state::app_state::AppState;
+use tauri::Manager;
 use tracing::info;
 
 /// Point d'entrée de la bibliothèque — appelé depuis `main.rs`.
