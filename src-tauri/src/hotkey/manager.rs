@@ -10,7 +10,7 @@ use crate::injection::typewriter::Typewriter;
 use crate::state::app_state::{AppState, DictationState};
 use crate::stt::whisper::WhisperTranscriber;
 
-const DEFAULT_SHORTCUT: &str = "ctrl+alt+d";
+const DEFAULT_SHORTCUT: &str = "ctrl+shift+f12";
 
 pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), DictakuError> {
     // Lit le raccourci depuis la config — fallback sur DEFAULT_SHORTCUT si absent.
