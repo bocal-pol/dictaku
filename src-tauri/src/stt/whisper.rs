@@ -79,13 +79,15 @@ impl WhisperTranscriber {
         let stdout = String::from_utf8_lossy(&output.stdout);
         debug!("whisper-cli stdout brut : {stdout:?}");
 
-        // Filtrage des lignes de méta-données whisper.cpp (timestamps, [BLANK_AUDIO], etc.)
+        // Filtrage des lignes de méta-données et hallucinations Whisper.
         let text = stdout
             .lines()
             .filter(|line| {
                 let l = line.trim();
                 !l.is_empty()
-                    && !l.starts_with('[')  // [00:00:00.000 --> ...]
+                    && !l.starts_with('[')      // [00:00:00.000 --> ...] ou [BLANK_AUDIO]
+                    && !l.starts_with('(')      // (inaudible), (bruit)
+                    && !l.starts_with('*')      // *cris*, *rires*
                     && !l.starts_with("whisper")
                     && !l.starts_with("system_info")
                     && !l.starts_with("main:")
@@ -152,6 +154,7 @@ fn run_whisper_cli(
             "--file",
             &wav.to_string_lossy(),
             "--no-timestamps",
+            "--no-speech-thold", "0.6",
         ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
