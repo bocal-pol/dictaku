@@ -148,9 +148,10 @@ impl AudioRecorder {
                     break;
                 }
 
-                // Timeout de sécurité.
-                if started_at.elapsed().as_secs() > 30 {
-                    info!("VAD : timeout 30s — envoi forcé");
+                // Timeout de sécurité — 15s max pour garder les fragments courts.
+                // Le modèle small traite ~4-5x temps réel sur CPU : 15s audio ≈ 60-75s transcription.
+                if started_at.elapsed().as_secs() > 15 {
+                    info!("VAD : timeout 15s — envoi forcé");
                     break;
                 }
 

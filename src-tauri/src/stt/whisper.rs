@@ -11,9 +11,9 @@ use crate::error::{DictakuError, Result};
 
 /// Timeout pour l'exécution de whisper-cli.exe.
 ///
-/// 30s est suffisant pour les modèles tiny/base/small sur CPU moderne.
-/// Les fragments audio en v0.1 ne dépassent pas 30s (VAD arrête avant).
-const TRANSCRIPTION_TIMEOUT_SECS: u64 = 30;
+/// 120s pour couvrir le modèle small sur CPU sans GPU (~4-5x temps réel).
+/// Un fragment de 30s audio peut prendre jusqu'à 2 minutes en small/CPU.
+const TRANSCRIPTION_TIMEOUT_SECS: u64 = 120;
 
 /// Wrapper autour du binaire `whisper-cli.exe` précompilé.
 ///
