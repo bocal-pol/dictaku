@@ -104,16 +104,16 @@ fn set_clipboard_text(text: &str) -> Result<()> {
         std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr, utf16.len());
         GlobalUnlock(hmem);
 
-        // NULL HWND = clipboard appartient au thread courant.
-        if OpenClipboard(std::ptr::null_mut()) == 0 {
+        // NULL HWND (0 as isize) = clipboard appartient au thread courant.
+        if OpenClipboard(0) == 0 {
             let err = windows_sys::Win32::Foundation::GetLastError();
             return Err(DictakuError::Injection(format!("OpenClipboard échoué (err={err})")));
         }
         EmptyClipboard();
-        let result = SetClipboardData(CF_UNICODETEXT as u32, hmem);
+        let result = SetClipboardData(CF_UNICODETEXT as u32, hmem as isize);
         CloseClipboard();
 
-        if result.is_null() {
+        if result == 0 {
             let err = windows_sys::Win32::Foundation::GetLastError();
             return Err(DictakuError::Injection(format!("SetClipboardData échoué (err={err})")));
         }
