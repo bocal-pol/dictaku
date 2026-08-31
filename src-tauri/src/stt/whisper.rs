@@ -154,7 +154,6 @@ fn run_whisper_cli(
             "--file",
             &wav.to_string_lossy(),
             "--no-timestamps",
-            "--no-speech-thold", "0.6",
         ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
