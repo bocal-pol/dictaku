@@ -117,7 +117,7 @@ impl Default for Settings {
             model_dir: None,
             injection_delay_ms: 20,
             vad_threshold: 0.01,
-            vad_silence_ms: 1500,
+            vad_silence_ms: 800,
         }
     }
 }
