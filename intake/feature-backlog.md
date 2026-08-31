@@ -42,7 +42,7 @@ Score RICE = Reach × Impact × Confidence / Effort (1–10 par axe)
 | ID | Feature | Raison d'exclusion |
 |---|---|---|
 | F20 | Historique persistant | Complexité SQLite + UI — reporté v0.2 |
-| F21 | Correction inline avant injection | Nécessite une fenêtre popup flottante — reporté v0.2 |
+| F21 | Correction inline avant injection | Reporté v0.2 → voir F32 (correction + apprentissage automatique) |
 | F22 | Injection dans apps UAC élevées | Requiert un service Windows en tant qu'administrateur — hors périmètre |
 | F23 | Support Linux / macOS | Hotkey global et injection via API Win32 sont Windows-spécifiques |
 | F24 | Compte utilisateur / sync cloud | Contraire au principe offline-first |
@@ -56,7 +56,8 @@ Score RICE = Reach × Impact × Confidence / Effort (1–10 par axe)
 |---|---|---|---|
 | F30 | Historique local SQLite | Must | `~/.dictaku/history.db` — liste des dictées horodatées avec texte et app cible |
 | F31 | UI panneau historique | Must | Fenêtre Tauri WebView pour consulter et copier les dictées précédentes |
-| F32 | Correction inline (popup) | Should | Fenêtre flottante borderless sur Écoute — affiche le texte en direct et permet d'éditer avant injection |
+| F32 | Correction inline + apprentissage | Should | Après injection, popup flottante affichant le texte transcrit avec champ éditable. Si l'utilisateur corrige → la paire (original → corrigé) est sauvegardée dans `~/.dictaku/corrections.json`. Chaque transcription suivante passe par ce filtre de remplacement avant injection. Priorité élevée pour usage policier (noms de rues, collègues, termes métier). |
+| F35 | Enrichissement prompt Whisper auto | Could | Utilise les corrections accumulées (F32) pour enrichir dynamiquement le `--prompt` de whisper-cli avec les termes fréquemment corrigés par cet utilisateur. Amélioration progressive sans réentraînement. |
 | F33 | Commandes vocales | Could | Mots-clés réservés : "effacer", "à la ligne", "annuler" interprétés comme commandes |
 | F34 | Recherche dans l'historique | Could | Filtre texte sur l'historique, filtre par app cible |
 
