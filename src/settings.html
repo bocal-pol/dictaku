@@ -1,6 +1,222 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Dictaku — Paramètres</title></head>
-<body style="background:#081408;color:#e0f0e4;font-family:Inter,sans-serif;padding:2rem">
-  <h1>Paramètres</h1>
-  <p>Interface de configuration à venir.</p>
-</body></html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Dictaku — Paramètres</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #081408;
+      color: #e0f0e4;
+      font-family: Inter, system-ui, sans-serif;
+      font-size: 14px;
+      padding: 24px;
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 20px;
+      color: #4a9a5a;
+      margin-bottom: 24px;
+      border-bottom: 1px solid #2a6a3a;
+      padding-bottom: 12px;
+    }
+
+    .section { margin-bottom: 24px; }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin-bottom: 6px;
+    }
+
+    select, input[type="text"], input[type="number"] {
+      width: 100%;
+      background: #0f2010;
+      border: 1px solid #2a6a3a;
+      border-radius: 6px;
+      color: #e0f0e4;
+      padding: 8px 12px;
+      font-size: 14px;
+      outline: none;
+      appearance: none;
+    }
+    select:focus, input:focus { border-color: #4a9a5a; }
+
+    .row { display: flex; gap: 12px; }
+    .row > * { flex: 1; }
+
+    .hint {
+      font-size: 11px;
+      color: #6b8f72;
+      margin-top: 4px;
+    }
+
+    .model-status {
+      display: inline-block;
+      font-size: 11px;
+      margin-left: 8px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .model-status.ok  { background: #1a4a1a; color: #4a9a5a; }
+    .model-status.missing { background: #4a1a00; color: #f97316; }
+
+    .btn {
+      display: inline-block;
+      padding: 8px 18px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: #4a9a5a; color: #081408; }
+    .btn-ghost   { background: transparent; border: 1px solid #2a6a3a; color: #e0f0e4; }
+    .btn-danger  { background: #7f1d1d; color: #fca5a5; }
+
+    .footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 28px;
+      padding-top: 16px;
+      border-top: 1px solid #2a6a3a;
+    }
+
+    #status {
+      display: none;
+      margin-top: 14px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    #status.ok    { display: block; background: #1a4a1a; color: #4a9a5a; }
+    #status.error { display: block; background: #4a1a00; color: #f97316; }
+  </style>
+</head>
+<body>
+  <h1>Paramètres Dictaku</h1>
+
+  <div class="section">
+    <label>Raccourci clavier — Démarrer</label>
+    <input type="text" id="hotkey" placeholder="ctrl+shift+f12" readonly
+           title="Modification du raccourci — fonctionnalité à venir">
+    <p class="hint">Appuyez sur <strong>Ctrl+Shift+F12</strong> pour démarrer · <strong>Escape</strong> pour arrêter</p>
+  </div>
+
+  <div class="section row">
+    <div>
+      <label>Langue</label>
+      <select id="language">
+        <option value="fr">🇫🇷 Français</option>
+        <option value="en">🇬🇧 English</option>
+        <option value="nl">🇧🇪 Nederlands</option>
+        <option value="auto">Auto-détection</option>
+      </select>
+    </div>
+    <div>
+      <label>Modèle Whisper
+        <span id="model-status" class="model-status"></span>
+      </label>
+      <select id="model">
+        <option value="tiny">Tiny (~39 MB) — rapide</option>
+        <option value="base">Base (~74 MB) — équilibré</option>
+        <option value="small">Small (~244 MB) — précis ★</option>
+      </select>
+      <p class="hint" id="model-hint"></p>
+    </div>
+  </div>
+
+  <div class="section row">
+    <div>
+      <label>Silence avant arrêt (ms)</label>
+      <input type="number" id="vad_silence_ms" min="500" max="5000" step="100">
+      <p class="hint">Durée de silence qui déclenche la fin de la capture (défaut : 2000 ms)</p>
+    </div>
+    <div>
+      <label>Seuil détection voix</label>
+      <input type="number" id="vad_threshold" min="0.001" max="0.1" step="0.001">
+      <p class="hint">Énergie RMS minimale pour considérer un son comme de la voix (défaut : 0.01)</p>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="footer">
+    <button class="btn btn-ghost" onclick="window.close()">Fermer</button>
+    <button class="btn btn-primary" onclick="saveSettings()">Enregistrer</button>
+  </div>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+
+    async function loadSettings() {
+      try {
+        const s = await invoke('get_settings');
+        document.getElementById('hotkey').value         = s.hotkey || 'ctrl+shift+f12';
+        document.getElementById('language').value       = s.language || 'fr';
+        document.getElementById('model').value          = s.model || 'small';
+        document.getElementById('vad_silence_ms').value = s.vad_silence_ms ?? 2000;
+        document.getElementById('vad_threshold').value  = s.vad_threshold ?? 0.01;
+        await checkModel(s.model || 'small');
+      } catch (e) {
+        showStatus('Impossible de charger la configuration : ' + e, 'error');
+      }
+    }
+
+    async function checkModel(model) {
+      const badge = document.getElementById('model-status');
+      const hint  = document.getElementById('model-hint');
+      try {
+        const exists = await invoke('check_model_exists', { model });
+        if (exists) {
+          badge.textContent = '✓ présent';
+          badge.className = 'model-status ok';
+          hint.textContent = '';
+        } else {
+          badge.textContent = '⚠ absent';
+          badge.className = 'model-status missing';
+          hint.textContent = 'Ce modèle n\'est pas téléchargé. Fermer et rouvrir Dictaku pour lancer le téléchargement.';
+        }
+      } catch { badge.textContent = ''; }
+    }
+
+    document.getElementById('model').addEventListener('change', e => checkModel(e.target.value));
+
+    async function saveSettings() {
+      const settings = {
+        hotkey:          document.getElementById('hotkey').value,
+        language:        document.getElementById('language').value,
+        model:           document.getElementById('model').value,
+        model_dir:       null,
+        injection_delay_ms: 20,
+        vad_threshold:   parseFloat(document.getElementById('vad_threshold').value),
+        vad_silence_ms:  parseInt(document.getElementById('vad_silence_ms').value, 10),
+      };
+      try {
+        await invoke('save_settings', { settings });
+        showStatus('Paramètres enregistrés.', 'ok');
+      } catch (e) {
+        showStatus('Erreur lors de la sauvegarde : ' + e, 'error');
+      }
+    }
+
+    function showStatus(msg, type) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = type;
+      if (type === 'ok') setTimeout(() => { el.className = ''; }, 3000);
+    }
+
+    loadSettings();
+  </script>
+</body>
+</html>

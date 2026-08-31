@@ -36,8 +36,8 @@ impl std::fmt::Display for Language {
 #[serde(rename_all = "lowercase")]
 pub enum WhisperModel {
     Tiny,
-    #[default]
     Base,
+    #[default]
     Small,
 }
 
@@ -117,7 +117,7 @@ impl Default for Settings {
             model_dir: None,
             injection_delay_ms: 20,
             vad_threshold: 0.01,
-            vad_silence_ms: 800,
+            vad_silence_ms: 2000,
         }
     }
 }
@@ -207,7 +207,7 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.hotkey, "ctrl+alt+d");
         assert_eq!(s.language, Language::Fr);
-        assert_eq!(s.model, WhisperModel::Base);
+        assert_eq!(s.model, WhisperModel::Small);
         assert_eq!(s.injection_delay_ms, 20);
         assert!(s.vad_threshold > 0.0);
         assert!(s.vad_silence_ms > 0);

@@ -15,6 +15,18 @@ use crate::error::{DictakuError, Result};
 /// Un fragment de 30s audio peut prendre jusqu'à 2 minutes en small/CPU.
 const TRANSCRIPTION_TIMEOUT_SECS: u64 = 120;
 
+/// Prompt d'amorçage injecté dans Whisper pour orienter la reconnaissance vers
+/// le vocabulaire policier belge francophone. Améliore significativement la
+/// précision sur les termes juridiques, sigles et procédures.
+const POLICE_PROMPT: &str = "Rapport de police belge francophone. \
+    Termes courants : procès-verbal, PV, prévenu, inculpé, plaignant, déclarant, \
+    témoin, audition, instruction judiciaire, parquet, substitut, magistrat, \
+    zone de police, commissariat, officier de police judiciaire, OPJ, \
+    intervention, patrouille, réquisition, perquisition, saisie, \
+    mise en état d'arrestation, garde à vue, liberté sous conditions, \
+    procureur du Roi, juge d'instruction, tribunal correctionnel, \
+    DGA, BRI, PJF, CGSU, DJSOC, OCAM.";
+
 /// Wrapper autour du binaire `whisper-cli.exe` précompilé.
 ///
 /// v0.1 : appel CLI avec fichier WAV temporaire.
@@ -65,6 +77,7 @@ impl WhisperTranscriber {
             &self.model_path,
             &wav_path,
             &self.language,
+            POLICE_PROMPT,
             Duration::from_secs(TRANSCRIPTION_TIMEOUT_SECS),
         )?;
 
@@ -140,6 +153,7 @@ fn run_whisper_cli(
     model: &Path,
     wav: &Path,
     language: &Language,
+    prompt: &str,
     timeout: Duration,
 ) -> Result<std::process::Output> {
     // whisper-cli produit le .txt dans le même dossier que le WAV d'entrée.
@@ -147,8 +161,8 @@ fn run_whisper_cli(
     //   --model     : chemin du modèle GGML
     //   --language  : code langue ISO (auto, fr, en, nl)
     //   --file      : fichier WAV d'entrée
-    //   --output-txt : produit <fichier>.txt
-    //   --no-prints : supprime les logs verbeux de whisper.cpp sur stdout
+    //   --no-timestamps : supprime les horodatages sur chaque ligne
+    //   --prompt    : amorce le contexte pour orienter la reconnaissance vocabulaire
     let lang_str = language.to_string();
 
     let mut child = Command::new(cli)
@@ -160,6 +174,8 @@ fn run_whisper_cli(
             "--file",
             &wav.to_string_lossy(),
             "--no-timestamps",
+            "--prompt",
+            prompt,
         ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
