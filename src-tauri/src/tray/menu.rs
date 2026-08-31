@@ -33,11 +33,11 @@ const ICON_PROCESSING_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" vi
 /// Initialise le tray icon. Prend un `AppHandle` (non-générique) pour éviter
 /// les contraintes de runtime sur `TrayIconBuilder::build`.
 pub fn setup_tray(handle: &AppHandle) -> Result<(), DictakuError> {
-    // Lit le raccourci depuis la config pour l'afficher dans le menu.
-    let hotkey_display = {
+    // Lit le raccourci et le modèle actif depuis la config pour l'afficher dans le menu.
+    let (hotkey_display, active_model) = {
         let state = handle.state::<crate::state::app_state::AppState>();
         let config = state.config.blocking_lock();
-        format_hotkey_display(&config.hotkey)
+        (format_hotkey_display(&config.hotkey), config.model.clone())
     };
 
     // Sous-menu Langue.
@@ -58,13 +58,24 @@ pub fn setup_tray(handle: &AppHandle) -> Result<(), DictakuError> {
     )
     .map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
 
-    // Sous-menu Modèle.
-    let model_tiny = MenuItem::with_id(handle, "model_tiny", "Tiny (~39 MB)", true, None::<&str>)
-        .map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
-    let model_base = MenuItem::with_id(handle, "model_base", "Base (~74 MB) ●", true, None::<&str>)
-        .map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
-    let model_small = MenuItem::with_id(handle, "model_small", "Small (~244 MB)", true, None::<&str>)
-        .map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
+    // Sous-menu Modèle — le ● marque le modèle actif lu depuis la config.
+    use crate::config::settings::WhisperModel;
+    let dot = |m: &WhisperModel, target: WhisperModel| if *m == target { " ●" } else { "" };
+    let model_tiny = MenuItem::with_id(
+        handle, "model_tiny",
+        &format!("Tiny (~39 MB){}", dot(&active_model, WhisperModel::Tiny)),
+        true, None::<&str>,
+    ).map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
+    let model_base = MenuItem::with_id(
+        handle, "model_base",
+        &format!("Base (~74 MB){}", dot(&active_model, WhisperModel::Base)),
+        true, None::<&str>,
+    ).map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
+    let model_small = MenuItem::with_id(
+        handle, "model_small",
+        &format!("Small (~244 MB){}", dot(&active_model, WhisperModel::Small)),
+        true, None::<&str>,
+    ).map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
 
     let model_submenu = Submenu::with_items(
         handle,

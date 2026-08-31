@@ -50,6 +50,10 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
                     DictationState::Idle => {
                         info!("Hotkey : démarrage dictée");
 
+                        // Capture la fenêtre active AVANT tout traitement — elle
+                        // recevra le texte injecté après la transcription.
+                        let target_window = crate::platform::WindowHandle::foreground();
+
                         // Récupération de la config courante.
                         let config = config_arc.lock().await.clone();
 
@@ -171,10 +175,16 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
                             info!("Injection : «{}»", &text[..text.len().min(60)]);
 
                             // Injection dans un thread bloquant (enigo est synchrone).
+                            // Remettre le focus sur la fenêtre cible AVANT d'injecter —
+                            // pendant la transcription (~30s), l'utilisateur peut avoir
+                            // cliqué ailleurs et enigo injecterait dans la mauvaise app.
                             let inj_delay = config.injection_delay_ms;
                             let state_done = state_inj.clone();
                             let stop_clear3 = stop_clear2.clone();
                             if let Err(e) = tokio::task::spawn_blocking(move || {
+                                if let Some(win) = target_window {
+                                    win.refocus();
+                                }
                                 let mut tw = Typewriter::new(inj_delay);
                                 tw.enqueue(text);
                                 tw.flush_all()
