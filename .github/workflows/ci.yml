@@ -45,7 +45,10 @@ jobs:
             ${{ runner.os }}-cargo-lint-
             ${{ runner.os }}-cargo-
 
-      - name: Create placeholder whisper-cli.exe for build
+      - name: Install Tauri CLI (for icon generation)
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Create placeholder whisper-cli.exe and generate icons
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri/resources | Out-Null
@@ -53,6 +56,10 @@ jobs:
             "src-tauri/resources/whisper-cli.exe",
             [byte[]](0x4D,0x5A)
           )
+
+      - name: Generate icon set from source PNG
+        working-directory: src-tauri
+        run: cargo tauri icon icons/icon.png
 
       - name: cargo fmt --check
         working-directory: src-tauri
@@ -86,7 +93,10 @@ jobs:
             ${{ runner.os }}-cargo-test-
             ${{ runner.os }}-cargo-
 
-      - name: Create placeholder whisper-cli.exe for build
+      - name: Install Tauri CLI (for icon generation)
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Create placeholder whisper-cli.exe and generate icons
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri/resources | Out-Null
@@ -94,6 +104,10 @@ jobs:
             "src-tauri/resources/whisper-cli.exe",
             [byte[]](0x4D,0x5A)
           )
+
+      - name: Generate icon set from source PNG
+        working-directory: src-tauri
+        run: cargo tauri icon icons/icon.png
 
       - name: cargo test --lib
         working-directory: src-tauri
