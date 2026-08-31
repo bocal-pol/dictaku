@@ -9,12 +9,15 @@ use crate::error::DictakuError;
 
 /// SVG du tray icon en état Idle (microphone gris).
 /// Embedé en base64 pour éviter un accès disque au démarrage.
+#[allow(dead_code)]
 const ICON_IDLE_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#9ca3af"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-2.07A7 7 0 0 0 19 12h-2z"/></svg>"##;
 
 /// SVG du tray icon en état Listening (microphone vert animé).
+#[allow(dead_code)]
 const ICON_LISTENING_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#22c55e"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-2.07A7 7 0 0 0 19 12h-2z"/></svg>"##;
 
 /// SVG du tray icon en état Transcribing/Injecting (microphone orange).
+#[allow(dead_code)]
 const ICON_PROCESSING_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#f97316"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.93V21h2v-2.07A7 7 0 0 0 19 12h-2z"/></svg>"##;
 
 /// Initialise le tray icon et le menu contextuel au démarrage de l'app.
@@ -103,7 +106,7 @@ pub fn setup_tray(handle: &AppHandle) -> Result<(), DictakuError> {
     // Construction du tray icon — handle (AppHandle<R>) impl Manager<R>.
     TrayIconBuilder::new()
         .menu(&menu)
-        .tooltip(&format!("Dictaku — Dictée vocale ({})", hotkey_display))
+        .tooltip(format!("Dictaku — Dictée vocale ({})", hotkey_display))
         .on_menu_event(|app, event| {
             handle_menu_event(app, event.id().as_ref());
         })

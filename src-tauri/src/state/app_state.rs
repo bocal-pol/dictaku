@@ -62,15 +62,15 @@ impl AppState {
     pub async fn transition(&self, new_state: DictationState) -> Result<()> {
         let mut current = self.state.lock().await;
 
-        let valid = match (&*current, &new_state) {
-            (DictationState::Idle, DictationState::Listening) => true,
-            (DictationState::Listening, DictationState::Transcribing) => true,
-            (DictationState::Listening, DictationState::Idle) => true,
-            (DictationState::Transcribing, DictationState::Injecting) => true,
-            (DictationState::Transcribing, DictationState::Idle) => true,
-            (DictationState::Injecting, DictationState::Idle) => true,
-            _ => false,
-        };
+        let valid = matches!(
+            (&*current, &new_state),
+            (DictationState::Idle, DictationState::Listening)
+                | (DictationState::Listening, DictationState::Transcribing)
+                | (DictationState::Listening, DictationState::Idle)
+                | (DictationState::Transcribing, DictationState::Injecting)
+                | (DictationState::Transcribing, DictationState::Idle)
+                | (DictationState::Injecting, DictationState::Idle)
+        );
 
         if !valid {
             warn!(

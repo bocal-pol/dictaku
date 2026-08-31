@@ -12,6 +12,7 @@ use tracing::{debug, info, warn};
 /// opérations effectuées ici (drop) sont thread-safe sur Windows (WASAPI).
 /// Ce wrapper est uniquement utilisé pour transférer le stream vers un thread
 /// de gardiennage dont le seul rôle est de le maintenir en vie puis de le dropper.
+#[allow(dead_code)]
 struct SendableStream(Stream);
 unsafe impl Send for SendableStream {}
 
@@ -20,10 +21,6 @@ use crate::error::{DictakuError, Result};
 /// Format audio requis par Whisper.cpp — 16kHz mono f32.
 const TARGET_SAMPLE_RATE: u32 = 16_000;
 const CHANNELS: u16 = 1;
-
-/// Taille du chunk audio envoyé sur le channel (en frames).
-/// 512 frames @ 16kHz = 32ms de latence par chunk.
-const CHUNK_SIZE: usize = 512;
 
 /// Configuration du VAD (Voice Activity Detection) basé sur l'énergie RMS.
 pub struct VadConfig {
@@ -75,6 +72,7 @@ impl AudioRecorder {
     /// Le sender se ferme automatiquement quand :
     /// - le silence dépasse `vad.silence_duration`
     /// - `stop_signal` est activé (via le `Arc<Mutex<bool>>` retourné)
+    #[allow(clippy::type_complexity)]
     pub fn start_recording(
         &self,
     ) -> Result<(
@@ -101,7 +99,7 @@ impl AudioRecorder {
         let shared_buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
 
         let buffer_clone = shared_buffer.clone();
-        let stop_clone = stop_signal.clone();
+        let _stop_clone = stop_signal.clone();
         let vad_threshold = self.vad.threshold;
         let silence_duration = self.vad.silence_duration;
 
@@ -234,7 +232,7 @@ fn build_stream_config(device: &Device) -> Result<(StreamConfig, u32)> {
     }
 
     // Priorité 3 : stéréo (on mixe les canaux)
-    for range in &supported {
+    if let Some(range) = supported.iter().next() {
         let native_rate = range.max_sample_rate().0;
         let channels = range.channels();
         info!("Capture stéréo {}ch à {}Hz + downmix + resampling", channels, native_rate);

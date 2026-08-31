@@ -1,7 +1,7 @@
-/// Traits et utilitaires spécifiques à la plateforme.
-///
-/// v0.1 : Windows uniquement — la couche platform prépare
-/// l'extension cross-platform en v0.2+ (macOS CGEventPost, X11/Wayland).
+//! Traits et utilitaires spécifiques à la plateforme.
+//!
+//! v0.1 : Windows uniquement — la couche platform prépare
+//! l'extension cross-platform en v0.2+ (macOS CGEventPost, X11/Wayland).
 
 /// Retourne le nom de la fenêtre actuellement au premier plan.
 ///

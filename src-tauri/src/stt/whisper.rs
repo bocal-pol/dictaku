@@ -215,7 +215,7 @@ fn strip_trailing_ellipsis(text: &str) -> String {
         }
     }
     // Supprime aussi les séquences mixtes en fin (ex: "... " ou "… …")
-    result.trim_end_matches(|c: char| c == '.' || c == '…' || c == ' ').to_string()
+    result.trim_end_matches(['.', '…', ' ']).to_string()
 }
 
 /// Détecte les hallucinations Whisper typiques.

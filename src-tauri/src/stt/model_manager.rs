@@ -104,8 +104,7 @@ impl ModelManager {
             hasher.update(chunk);
             downloaded += n as u64;
 
-            if total > 0 {
-                let pct = ((downloaded * 100) / total) as u8;
+            if let Some(pct) = (downloaded * 100).checked_div(total).map(|p| p as u8) {
                 if pct != last_pct {
                     last_pct = pct;
                     let dl_mb = downloaded as f64 / 1_048_576.0;
@@ -146,8 +145,3 @@ impl ModelManager {
     }
 }
 
-fn compute_sha256(data: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    hex::encode(hasher.finalize())
-}

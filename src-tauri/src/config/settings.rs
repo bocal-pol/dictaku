@@ -5,20 +5,15 @@ use tracing::{debug, info};
 use crate::error::{DictakuError, Result};
 
 /// Langues supportées par Whisper.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
     /// Détection automatique par Whisper (coût CPU légèrement supérieur).
     Auto,
+    #[default]
     Fr,
     En,
     Nl,
-}
-
-impl Default for Language {
-    fn default() -> Self {
-        Language::Fr
-    }
 }
 
 impl std::fmt::Display for Language {
@@ -37,18 +32,13 @@ impl std::fmt::Display for Language {
 /// Tiny  : ~39 MB, ~10x temps réel  — suffisant pour les commandes courtes
 /// Base  : ~74 MB, ~7x temps réel   — bon équilibre (recommandé)
 /// Small : ~244 MB, ~4x temps réel  — meilleure précision, accents difficiles
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WhisperModel {
     Tiny,
+    #[default]
     Base,
     Small,
-}
-
-impl Default for WhisperModel {
-    fn default() -> Self {
-        WhisperModel::Base
-    }
 }
 
 impl WhisperModel {
@@ -207,7 +197,6 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
 
     #[test]
     fn default_settings_are_valid() {
