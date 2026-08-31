@@ -166,7 +166,11 @@ impl Settings {
         let content = std::fs::read_to_string(&path)
             .map_err(|e| DictakuError::Config(format!("Lecture impossible : {e}")))?;
 
-        let settings: Self = serde_json::from_str(&content)
+        // Retire le BOM UTF-8 (EF BB BF) si présent — produit par certains
+        // outils Windows (PowerShell Set-Content, Notepad) qui écrivent en UTF-8 avec BOM.
+        let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
+
+        let settings: Self = serde_json::from_str(content)
             .map_err(|e| DictakuError::Config(format!("JSON invalide : {e}")))?;
 
         info!("Config chargée : modèle={:?}, langue={}", settings.model, settings.language);
