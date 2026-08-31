@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::time::Duration;
 use tempfile::NamedTempFile;
 use tracing::{debug, info, warn};
@@ -91,6 +93,7 @@ impl WhisperTranscriber {
                     && !l.starts_with("whisper")
                     && !l.starts_with("system_info")
                     && !l.starts_with("main:")
+                    && !is_hallucination(l)
             })
             .collect::<Vec<_>>()
             .join(" ");
@@ -157,6 +160,9 @@ fn run_whisper_cli(
         ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
+        // Cache la fenêtre console sur Windows — sans ça whisper-cli.exe ouvre
+        // une fenêtre noire visible pendant la transcription.
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
         .spawn()
         .map_err(|e| {
             DictakuError::Transcription(format!(
@@ -186,4 +192,27 @@ fn run_whisper_cli(
     child
         .wait_with_output()
         .map_err(|e| DictakuError::Transcription(format!("Lecture output whisper-cli : {e}")))
+}
+
+/// Détecte les hallucinations Whisper typiques.
+///
+/// Whisper hallucine souvent sur du silence ou du bruit : caractères répétés
+/// ("!!!!!!", "......"), phrases musicales, remerciements génériques.
+fn is_hallucination(text: &str) -> bool {
+    if text.len() < 3 {
+        return false;
+    }
+    // Répétition excessive d'un même caractère (ex: "!!!!!!!", "......")
+    let chars: Vec<char> = text.chars().collect();
+    let repeated = chars.windows(4).any(|w| w[0] == w[1] && w[1] == w[2] && w[2] == w[3]);
+    if repeated {
+        return true;
+    }
+    // Phrases de remplissage génériques que Whisper génère sur du silence
+    let fillers = [
+        "sous-titres réalisés", "sous-titrage", "merci d'avoir regardé",
+        "abonnez-vous", "transcription", "music", "♪", "…",
+    ];
+    let lower = text.to_lowercase();
+    fillers.iter().any(|f| lower.contains(f))
 }
