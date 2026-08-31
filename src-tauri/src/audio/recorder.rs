@@ -232,7 +232,7 @@ fn build_stream_config(device: &Device) -> Result<(StreamConfig, u32)> {
     }
 
     // Priorité 3 : stéréo (on mixe les canaux)
-    if let Some(range) = supported.iter().next() {
+    if let Some(range) = supported.first() {
         let native_rate = range.max_sample_rate().0;
         let channels = range.channels();
         info!("Capture stéréo {}ch à {}Hz + downmix + resampling", channels, native_rate);
