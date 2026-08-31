@@ -50,28 +50,36 @@ Score RICE = Reach × Impact × Confidence / Effort (1–10 par axe)
 
 ---
 
-## v0.2 — Productivité avancée (estimé ~3 mois après v0.1)
+## v0.2 — Productivité avancée + usage policier (estimé ~3 mois après v0.1)
 
 | ID | Feature | Priorité | Description |
 |---|---|---|---|
 | F30 | Historique local SQLite | Must | `~/.dictaku/history.db` — liste des dictées horodatées avec texte et app cible |
 | F31 | UI panneau historique | Must | Fenêtre Tauri WebView pour consulter et copier les dictées précédentes |
-| F32 | Correction inline + apprentissage | Should | Après injection, popup flottante affichant le texte transcrit avec champ éditable. Si l'utilisateur corrige → la paire (original → corrigé) est sauvegardée dans `~/.dictaku/corrections.json`. Chaque transcription suivante passe par ce filtre de remplacement avant injection. Priorité élevée pour usage policier (noms de rues, collègues, termes métier). |
-| F35 | Enrichissement prompt Whisper auto | Could | Utilise les corrections accumulées (F32) pour enrichir dynamiquement le `--prompt` de whisper-cli avec les termes fréquemment corrigés par cet utilisateur. Amélioration progressive sans réentraînement. |
-| F33 | Commandes vocales | Could | Mots-clés réservés : "effacer", "à la ligne", "annuler" interprétés comme commandes |
-| F34 | Recherche dans l'historique | Could | Filtre texte sur l'historique, filtre par app cible |
+| F32 | Correction inline + apprentissage | Must | Après injection, popup flottante affichant le texte transcrit avec champ éditable. Si l'utilisateur corrige → la paire (original → corrigé) est sauvegardée dans `~/.dictaku/corrections.json`. Chaque transcription suivante passe par ce filtre avant injection. Priorité élevée pour usage policier (noms de rues, collègues, termes métier). |
+| F36 | Fenêtre dictée temps réel | Must | Petite fenêtre flottante semi-transparente affichant le texte au fil de la transcription — l'agent voit immédiatement si Whisper décroche ou confond un mot. Se ferme automatiquement après injection. |
+| F37 | Glossaires par service | Must | Fichiers `~/.dictaku/glossaires/<service>.txt` (PJF, BRI, DJSOC, local…) chargés en supplément du prompt Whisper. Sélection active depuis le menu tray. Permet d'adapter le vocabulaire au service sans toucher à la config globale. |
+| F38 | Templates de documents policiers | Should | Gabarits pré-remplis pour PV d'audition, rapport d'intervention, note de service. L'utilisateur choisit un template → Dictaku ouvre un éditeur avec les sections structurées → dicte chaque section à la suite → le document complet est copié dans le presse-papier ou injecté dans Word/LibreOffice. |
+| F10 | Démarrage automatique Windows | Should | Enregistrement dans `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` — l'app se lance au login sans intervention. Activé par défaut, désactivable dans Paramètres. |
+| F12 | Sélection du microphone | Should | Menu tray ou Paramètres : liste des devices audio disponibles via `cpal`. Utile quand casque + micro de table sont présents simultanément. |
+| F35 | Enrichissement prompt Whisper auto | Could | Utilise les corrections accumulées (F32) pour enrichir dynamiquement le `--prompt` avec les termes fréquemment corrigés. Amélioration progressive sans réentraînement. |
+| F33 | Commandes vocales | Could | Mots-clés réservés : "effacer", "à la ligne", "annuler", "nouveau paragraphe" interprétés comme commandes avant injection. |
+| F34 | Recherche dans l'historique | Could | Filtre texte sur l'historique, filtre par app cible, export CSV. |
 
 ---
 
-## v0.3 — Cross-platform + optionnel cloud (estimé ~6 mois après v0.1)
+## v0.3 — Puissance + intégration métier (estimé ~6 mois après v0.1)
 
 | ID | Feature | Priorité | Description |
 |---|---|---|---|
-| F40 | Support macOS | Must | Remplacement de l'API Win32 par les équivalents macOS (CGEventPost, NSWorkspace) |
-| F41 | Support Linux (X11/Wayland) | Should | Via `xdotool` / `ydotool` selon le serveur d'affichage |
-| F42 | GPU acceleration (CUDA/Metal) | Should | whisper.cpp avec backend CUDA pour latence < 0.5 s sur GPU |
-| F43 | Cloud STT optionnel | Could | Mode alternatif : OpenAI Whisper API ou Azure Speech — opt-in explicite, aucun défaut |
-| F44 | Synchronisation config multi-postes | Could | Sync du `config.json` via fichier partagé (Dropbox, OneDrive) — pas de compte dictaku |
+| F42 | GPU acceleration (CUDA) | Must | whisper.cpp avec backend CUDA — latence < 0.5s, modèle `medium` utilisable (~769 MB, précision nettement supérieure sur accents et termes rares). Nécessite GPU NVIDIA sur le poste. |
+| F45 | Fine-tuning voix individuelle | Should | Réentraînement whisper.cpp sur ~1h d'audio annoté par agent (corrections F32 accumulées). Adapte le modèle à la voix et au vocabulaire spécifique de chaque policier. Précision cible 95%+ sur termes policiers. Pipeline offline, aucune donnée quitte le poste. |
+| F46 | Intégration logiciels police (API) | Should | Injection directe dans les logiciels métier (CadiLog, DMP, ISLP…) via leur API ou interface COM/OLE si disponible — plus fiable que la simulation Ctrl+V, supporte les champs avec validation de saisie. |
+| F47 | Mode lecture relecture (TTS) | Could | Relecture vocale du texte injecté via Windows SAPI (Text-to-Speech intégré, offline) — l'agent entend ce qui a été transcrit pour vérification sans quitter le champ actif. |
+| F44 | Synchronisation config multi-postes | Could | Sync de `config.json` + glossaires + corrections via fichier partagé réseau (\\serveur\dictaku\) — permet de déployer un profil identique sur tous les postes d'un service. |
+| F40 | Support macOS | Could | Remplacement de l'API Win32 par CGEventPost/NSWorkspace — hors priorité police (parc Windows). |
+| F41 | Support Linux (X11/Wayland) | Could | Via `xdotool` / `ydotool` — hors priorité police. |
+| F43 | Cloud STT optionnel | Won't | Contraire au principe offline-first — données vocales sensibles. |
 
 ---
 
