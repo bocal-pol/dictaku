@@ -102,7 +102,7 @@ fn set_clipboard_text(text: &str) -> Result<()> {
     unsafe {
         // Alloue un bloc mémoire global déplaçable.
         let hmem = GlobalAlloc(GMEM_MOVEABLE, byte_len);
-        if hmem == 0 {
+        if hmem.is_null() {
             return Err(DictakuError::Injection("GlobalAlloc échoué".into()));
         }
 
