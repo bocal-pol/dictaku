@@ -63,17 +63,17 @@ pub fn setup_tray(handle: &AppHandle) -> Result<(), DictakuError> {
     let dot = |m: &WhisperModel, target: WhisperModel| if *m == target { " ●" } else { "" };
     let model_tiny = MenuItem::with_id(
         handle, "model_tiny",
-        &format!("Tiny (~39 MB){}", dot(&active_model, WhisperModel::Tiny)),
+        format!("Tiny (~39 MB){}", dot(&active_model, WhisperModel::Tiny)),
         true, None::<&str>,
     ).map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
     let model_base = MenuItem::with_id(
         handle, "model_base",
-        &format!("Base (~74 MB){}", dot(&active_model, WhisperModel::Base)),
+        format!("Base (~74 MB){}", dot(&active_model, WhisperModel::Base)),
         true, None::<&str>,
     ).map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
     let model_small = MenuItem::with_id(
         handle, "model_small",
-        &format!("Small (~244 MB){}", dot(&active_model, WhisperModel::Small)),
+        format!("Small (~244 MB){}", dot(&active_model, WhisperModel::Small)),
         true, None::<&str>,
     ).map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
 
