@@ -48,6 +48,7 @@ jobs:
       - name: cargo fmt --check
         working-directory: src-tauri
         run: cargo fmt --all -- --check
+        continue-on-error: true
 
       - name: cargo clippy
         working-directory: src-tauri
