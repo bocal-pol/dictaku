@@ -45,6 +45,15 @@ jobs:
             ${{ runner.os }}-cargo-lint-
             ${{ runner.os }}-cargo-
 
+      - name: Create placeholder whisper-cli.exe for build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/resources | Out-Null
+          [System.IO.File]::WriteAllBytes(
+            "src-tauri/resources/whisper-cli.exe",
+            [byte[]](0x4D,0x5A)
+          )
+
       - name: cargo fmt --check
         working-directory: src-tauri
         run: cargo fmt --all -- --check
@@ -76,6 +85,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-test-
             ${{ runner.os }}-cargo-
+
+      - name: Create placeholder whisper-cli.exe for build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/resources | Out-Null
+          [System.IO.File]::WriteAllBytes(
+            "src-tauri/resources/whisper-cli.exe",
+            [byte[]](0x4D,0x5A)
+          )
 
       - name: cargo test --lib
         working-directory: src-tauri
