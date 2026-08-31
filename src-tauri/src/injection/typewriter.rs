@@ -1,7 +1,6 @@
-use enigo::{Enigo, Key, Keyboard, Settings as EnigoSettings};
 use std::collections::VecDeque;
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::error::{DictakuError, Result};
 
@@ -42,10 +41,6 @@ impl Typewriter {
     }
 
     /// Injecte le texte via clipboard + Ctrl+V.
-    ///
-    /// Stratégie : écrire dans le presse-papier Windows puis simuler Ctrl+V.
-    /// Beaucoup plus fiable qu'envoyer des SendInput caractère par caractère —
-    /// fonctionne indépendamment du focus et du layout clavier.
     pub fn type_text(&self, text: &str) -> Result<()> {
         if text.is_empty() {
             return Ok(());
@@ -53,26 +48,26 @@ impl Typewriter {
 
         info!("Injection clipboard : {} caractères", text.len());
 
-        // 1. Écrire le texte dans le presse-papier Windows.
-        set_clipboard_text(text)?;
+        // 1. Écrire dans le clipboard.
+        match set_clipboard_text(text) {
+            Ok(()) => debug!("Clipboard rempli OK"),
+            Err(e) => {
+                error!("Échec clipboard : {e}");
+                return Err(e);
+            }
+        }
 
-        // 2. Petit délai pour que le clipboard soit prêt.
-        std::thread::sleep(Duration::from_millis(50));
+        // 2. Délai pour que le clipboard et le focus soient stabilisés.
+        std::thread::sleep(Duration::from_millis(200));
 
-        // 3. Simuler Ctrl+V dans la fenêtre active.
-        let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| {
-            DictakuError::Injection(format!("Initialisation enigo : {e}"))
-        })?;
-
-        enigo.key(Key::Control, enigo::Direction::Press).map_err(|e| {
-            DictakuError::Injection(format!("Ctrl press : {e}"))
-        })?;
-        enigo.key(Key::Unicode('v'), enigo::Direction::Click).map_err(|e| {
-            DictakuError::Injection(format!("V click : {e}"))
-        })?;
-        enigo.key(Key::Control, enigo::Direction::Release).map_err(|e| {
-            DictakuError::Injection(format!("Ctrl release : {e}"))
-        })?;
+        // 3. Ctrl+V via SendInput.
+        match paste_via_sendinput() {
+            Ok(()) => debug!("SendInput Ctrl+V OK"),
+            Err(e) => {
+                error!("Échec SendInput : {e}");
+                return Err(e);
+            }
+        }
 
         if self.delay_ms > 0 {
             std::thread::sleep(Duration::from_millis(self.delay_ms));
@@ -83,44 +78,45 @@ impl Typewriter {
     }
 }
 
-/// Écrit du texte dans le presse-papier Windows via l'API Win32.
 #[cfg(target_os = "windows")]
 fn set_clipboard_text(text: &str) -> Result<()> {
-    use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
     };
-    use windows_sys::Win32::System::Memory::{
-        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
-    };
+    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
     use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 
-    // Encodage UTF-16 LE avec null-terminator.
     let utf16: Vec<u16> = text.encode_utf16().chain(std::iter::once(0u16)).collect();
     let byte_len = utf16.len() * 2;
 
     unsafe {
-        // Alloue un bloc mémoire global déplaçable.
         let hmem = GlobalAlloc(GMEM_MOVEABLE, byte_len);
         if hmem.is_null() {
-            return Err(DictakuError::Injection("GlobalAlloc échoué".into()));
+            let err = windows_sys::Win32::Foundation::GetLastError();
+            return Err(DictakuError::Injection(format!("GlobalAlloc échoué (err={err})")));
         }
 
-        // Verrouille pour écrire les données.
         let ptr = GlobalLock(hmem) as *mut u16;
         if ptr.is_null() {
-            return Err(DictakuError::Injection("GlobalLock échoué".into()));
+            let err = windows_sys::Win32::Foundation::GetLastError();
+            return Err(DictakuError::Injection(format!("GlobalLock échoué (err={err})")));
         }
         std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr, utf16.len());
         GlobalUnlock(hmem);
 
-        // Ouvre le presse-papier, vide, puis insère.
-        if OpenClipboard(0 as HANDLE) == 0 {
-            return Err(DictakuError::Injection("OpenClipboard échoué".into()));
+        // NULL HWND = clipboard appartient au thread courant.
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            let err = windows_sys::Win32::Foundation::GetLastError();
+            return Err(DictakuError::Injection(format!("OpenClipboard échoué (err={err})")));
         }
         EmptyClipboard();
-        SetClipboardData(CF_UNICODETEXT as u32, hmem as HANDLE);
+        let result = SetClipboardData(CF_UNICODETEXT as u32, hmem);
         CloseClipboard();
+
+        if result.is_null() {
+            let err = windows_sys::Win32::Foundation::GetLastError();
+            return Err(DictakuError::Injection(format!("SetClipboardData échoué (err={err})")));
+        }
     }
 
     Ok(())
@@ -129,4 +125,48 @@ fn set_clipboard_text(text: &str) -> Result<()> {
 #[cfg(not(target_os = "windows"))]
 fn set_clipboard_text(_text: &str) -> Result<()> {
     Err(DictakuError::Injection("Clipboard non supporté sur cette plateforme".into()))
+}
+
+#[cfg(target_os = "windows")]
+fn paste_via_sendinput() -> Result<()> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL, VK_V,
+    };
+
+    let make_key = |vk: u16, flags: u32| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
+            ki: KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 },
+        },
+    };
+
+    let inputs = [
+        make_key(VK_CONTROL, 0),
+        make_key(VK_V, 0),
+        make_key(VK_V, KEYEVENTF_KEYUP),
+        make_key(VK_CONTROL, KEYEVENTF_KEYUP),
+    ];
+
+    let sent = unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        )
+    };
+
+    if sent != inputs.len() as u32 {
+        let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        return Err(DictakuError::Injection(format!(
+            "SendInput : {sent}/{} events envoyés (err={err})",
+            inputs.len()
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn paste_via_sendinput() -> Result<()> {
+    Err(DictakuError::Injection("SendInput non supporté sur cette plateforme".into()))
 }
