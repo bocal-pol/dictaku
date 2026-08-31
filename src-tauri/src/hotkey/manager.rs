@@ -36,7 +36,7 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
     let active_stop: Arc<Mutex<Option<Arc<Mutex<bool>>>>> = Arc::new(Mutex::new(None));
 
     // Clone pour le handler Escape.
-    let active_stop_for_escape = active_stop.clone();
+    let _active_stop_for_escape = active_stop.clone();
     let stop_shortcut_clone = stop_shortcut;
 
     app.global_shortcut()
