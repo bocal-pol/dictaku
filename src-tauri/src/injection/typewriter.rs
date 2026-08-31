@@ -1,15 +1,9 @@
 use enigo::{Enigo, Keyboard, Settings as EnigoSettings};
 use std::collections::VecDeque;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::error::{DictakuError, Result};
-
-/// Nom de la fenêtre Dictaku — utilisé pour le garde-fou d'injection.
-///
-/// On ne veut pas injecter du texte dans notre propre UI overlay
-/// si l'utilisateur a cliqué dessus avant la fin de la transcription.
-const DICTAKU_WINDOW_TITLE: &str = "Dictaku";
 
 /// Injection clavier simulée via `enigo`.
 ///
@@ -41,18 +35,10 @@ impl Typewriter {
     }
 
     /// Injecte le prochain texte de la file dans la fenêtre active.
-    ///
-    /// Garde-fou : si la fenêtre active est Dictaku, l'injection est annulée
-    /// pour éviter d'écrire dans notre propre UI et créer une boucle infinie.
     pub fn flush_next(&mut self) -> Result<bool> {
         let Some(text) = self.queue.pop_front() else {
             return Ok(false);
         };
-
-        if is_dictaku_focused() {
-            warn!("Injection annulée : la fenêtre Dictaku est au premier plan");
-            return Ok(false);
-        }
 
         self.type_text(&text)?;
         Ok(true)
@@ -98,41 +84,3 @@ impl Typewriter {
     }
 }
 
-/// Vérifie si la fenêtre en premier plan appartient à Dictaku.
-///
-/// Windows API : `GetForegroundWindow` + `GetWindowTextW`.
-/// En cas d'erreur (ex. permissions), retourne `false` par défaut (fail-open).
-///
-/// HWND dans windows-sys est un `isize` (0 = NULL), pas un pointeur.
-#[cfg(target_os = "windows")]
-fn is_dictaku_focused() -> bool {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
-
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd == 0 {
-            return false;
-        }
-
-        let mut buf = [0u16; 256];
-        let len = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
-
-        if len <= 0 {
-            return false;
-        }
-
-        let title = OsString::from_wide(&buf[..len as usize])
-            .to_string_lossy()
-            .to_string();
-
-        title.contains(DICTAKU_WINDOW_TITLE)
-    }
-}
-
-/// Fallback non-Windows : toujours autoriser l'injection.
-#[cfg(not(target_os = "windows"))]
-fn is_dictaku_focused() -> bool {
-    false
-}

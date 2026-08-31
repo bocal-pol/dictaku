@@ -98,7 +98,10 @@ impl WhisperTranscriber {
             .collect::<Vec<_>>()
             .join(" ");
 
-        let trimmed = text.trim().to_string();
+        // Supprime les points de suspension parasites en fin de transcription.
+        // Whisper hallucine souvent des `…` (U+2026) ou `...` à la fin d'un
+        // segment audio qui se termine brusquement.
+        let trimmed = strip_trailing_ellipsis(text.trim());
         info!("Transcription : {:?} ({} caractères)", &trimmed[..trimmed.len().min(80)], trimmed.len());
         Ok(trimmed)
     }
@@ -194,6 +197,27 @@ fn run_whisper_cli(
         .map_err(|e| DictakuError::Transcription(format!("Lecture output whisper-cli : {e}")))
 }
 
+/// Supprime les séquences de points de suspension parasites en fin de texte.
+///
+/// Whisper ajoute souvent `…` (U+2026) ou `...` à la fin d'un segment audio
+/// qui se coupe brusquement. Cette fonction les retire sans toucher au texte
+/// réel qui précède.
+fn strip_trailing_ellipsis(text: &str) -> String {
+    let mut result = text.to_string();
+    loop {
+        let trimmed = result.trim_end();
+        if trimmed.ends_with('…') || trimmed.ends_with('.') {
+            // Retire le dernier caractère et recommence.
+            let char_boundary = trimmed.char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
+            result = trimmed[..char_boundary].to_string();
+        } else {
+            break;
+        }
+    }
+    // Supprime aussi les séquences mixtes en fin (ex: "... " ou "… …")
+    result.trim_end_matches(|c: char| c == '.' || c == '…' || c == ' ').to_string()
+}
+
 /// Détecte les hallucinations Whisper typiques.
 ///
 /// Whisper hallucine souvent sur du silence ou du bruit : caractères répétés
@@ -211,7 +235,7 @@ fn is_hallucination(text: &str) -> bool {
     // Phrases de remplissage génériques que Whisper génère sur du silence
     let fillers = [
         "sous-titres réalisés", "sous-titrage", "merci d'avoir regardé",
-        "abonnez-vous", "transcription", "music", "♪", "…",
+        "abonnez-vous", "transcription", "music", "♪",
     ];
     let lower = text.to_lowercase();
     fillers.iter().any(|f| lower.contains(f))

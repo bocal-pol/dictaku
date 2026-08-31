@@ -30,6 +30,12 @@ const ICON_PROCESSING_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" vi
 /// Initialise le tray icon. Prend un `AppHandle` (non-générique) pour éviter
 /// les contraintes de runtime sur `TrayIconBuilder::build`.
 pub fn setup_tray(handle: &AppHandle) -> Result<(), DictakuError> {
+    // Lit le raccourci depuis la config pour l'afficher dans le menu.
+    let hotkey_display = {
+        let state = handle.state::<crate::state::app_state::AppState>();
+        let config = state.config.blocking_lock();
+        format_hotkey_display(&config.hotkey)
+    };
 
     // Sous-menu Langue.
     let lang_fr = MenuItem::with_id(handle, "lang_fr", "🇫🇷 Français", true, None::<&str>)
@@ -66,10 +72,11 @@ pub fn setup_tray(handle: &AppHandle) -> Result<(), DictakuError> {
     .map_err(|e| DictakuError::HotkeyRegistration(e.to_string()))?;
 
     // Items principaux.
+    let toggle_label = format!("Démarrer dictée  ({})", hotkey_display);
     let toggle_item = MenuItem::with_id(
         handle,
         "toggle",
-        "Démarrer dictée  (Ctrl+Alt+D)",
+        &toggle_label,
         true,
         None::<&str>,
     )
@@ -96,7 +103,7 @@ pub fn setup_tray(handle: &AppHandle) -> Result<(), DictakuError> {
     // Construction du tray icon — handle (AppHandle<R>) impl Manager<R>.
     TrayIconBuilder::new()
         .menu(&menu)
-        .tooltip("Dictaku — Dictée vocale (Ctrl+Alt+D)")
+        .tooltip(&format!("Dictaku — Dictée vocale ({})", hotkey_display))
         .on_menu_event(|app, event| {
             handle_menu_event(app, event.id().as_ref());
         })
@@ -118,6 +125,21 @@ pub fn setup_tray(handle: &AppHandle) -> Result<(), DictakuError> {
     Ok(())
 }
 
+/// Formate un raccourci "ctrl+shift+f12" en "Ctrl+Shift+F12" pour l'affichage.
+fn format_hotkey_display(hotkey: &str) -> String {
+    hotkey
+        .split('+')
+        .map(|part| {
+            let mut chars = part.trim().chars();
+            match chars.next() {
+                None => String::new(),
+                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
 /// Dispatch des events du menu contextuel.
 fn handle_menu_event(app: &AppHandle, event_id: &str) {
     match event_id {
@@ -137,12 +159,57 @@ fn handle_menu_event(app: &AppHandle, event_id: &str) {
             app.exit(0);
         }
         id if id.starts_with("lang_") => {
-            debug!("Menu : changement langue → {id}");
-            // TODO: mettre à jour Settings.language et AppState
+            use crate::config::settings::Language;
+            use crate::state::app_state::AppState;
+
+            let lang = match id {
+                "lang_fr"   => Language::Fr,
+                "lang_en"   => Language::En,
+                "lang_nl"   => Language::Nl,
+                "lang_auto" => Language::Auto,
+                _           => return,
+            };
+            info!("Menu : langue → {lang}");
+            let state = app.state::<AppState>();
+            let mut config = state.config.blocking_lock();
+            config.language = lang;
+            if let Err(e) = config.save() {
+                tracing::error!("Sauvegarde config langue : {e}");
+            }
         }
         id if id.starts_with("model_") => {
-            debug!("Menu : changement modèle → {id}");
-            // TODO: mettre à jour Settings.model et AppState.model_path
+            use crate::config::settings::WhisperModel;
+            use crate::state::app_state::AppState;
+
+            let model = match id {
+                "model_tiny"  => WhisperModel::Tiny,
+                "model_base"  => WhisperModel::Base,
+                "model_small" => WhisperModel::Small,
+                _             => return,
+            };
+            info!("Menu : modèle → {model:?}");
+            let state = app.state::<AppState>();
+            let mut config = state.config.blocking_lock();
+
+            // Vérifie que le fichier modèle est présent avant de switcher.
+            let model_path = config.models_dir().join(model.filename());
+            if !model_path.exists() {
+                tracing::warn!(
+                    "Modèle {} absent — ouvrir la fenêtre setup pour le télécharger",
+                    model.filename()
+                );
+                drop(config);
+                if let Some(win) = app.get_webview_window("setup") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+                return;
+            }
+
+            config.model = model;
+            if let Err(e) = config.save() {
+                tracing::error!("Sauvegarde config modèle : {e}");
+            }
         }
         _ => {
             debug!("Menu : event inconnu — {event_id}");
