@@ -95,14 +95,25 @@ where
 
     info!("SR WinRT : initialisation langue={lang_tag}");
 
-    // Créer le recognizer avec la langue demandée.
-    // `Language::CreateLanguage` est le constructeur WinRT (équivalent de `new Language(tag)`).
+    // Essaie avec la langue demandée, puis fallback vers la langue système.
     let lang_hstr = windows::core::HSTRING::from(lang_tag.as_str());
-    let win_lang = WinLanguage::CreateLanguage(&lang_hstr)
-        .map_err(|e| DictakuError::Stt(format!("WinLang::CreateLanguage({lang_tag}) : {e}")))?;
-
-    let recognizer = SpeechRecognizer::Create(&win_lang)
-        .map_err(|e| DictakuError::Stt(format!("SpeechRecognizer::Create : {e}")))?;
+    let recognizer = if let Ok(lang) = WinLanguage::CreateLanguage(&lang_hstr) {
+        match SpeechRecognizer::Create(&lang) {
+            Ok(r) => {
+                info!("SR WinRT : recognizer créé pour {lang_tag}");
+                r
+            }
+            Err(e) => {
+                info!("SR WinRT : langue {lang_tag} non disponible ({e}) — fallback langue système");
+                SpeechRecognizer::new()
+                    .map_err(|e2| DictakuError::Stt(format!("SpeechRecognizer (système) : {e2}")))?
+            }
+        }
+    } else {
+        info!("SR WinRT : tag {lang_tag} invalide — fallback langue système");
+        SpeechRecognizer::new()
+            .map_err(|e| DictakuError::Stt(format!("SpeechRecognizer (système) : {e}")))?
+    };
 
     // Compiler la grammaire par défaut (dictée libre).
     recognizer.CompileConstraintsAsync()

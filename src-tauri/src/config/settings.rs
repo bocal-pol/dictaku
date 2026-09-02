@@ -32,9 +32,12 @@ impl Language {
     /// Auto → "fr-BE" par défaut (contexte police belge).
     pub fn bcp47(&self) -> &'static str {
         match self {
-            Language::Auto | Language::Fr => "fr-BE",
+            // fr-FR est installé par défaut sur Windows en français.
+            // fr-BE n'est disponible que si le pack langue belge est explicitement installé.
+            Language::Auto | Language::Fr => "fr-FR",
             Language::En => "en-US",
-            Language::Nl => "nl-BE",
+            // nl-NL est le fallback standard si nl-BE absent.
+            Language::Nl => "nl-NL",
         }
     }
 }
@@ -48,8 +51,8 @@ impl Language {
 #[serde(rename_all = "lowercase")]
 pub enum WhisperModel {
     Tiny,
-    Base,
     #[default]
+    Base,
     Small,
 }
 
@@ -219,7 +222,7 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.hotkey, "ctrl+alt+d");
         assert_eq!(s.language, Language::Fr);
-        assert_eq!(s.model, WhisperModel::Small);
+        assert_eq!(s.model, WhisperModel::Base);
         assert_eq!(s.injection_delay_ms, 20);
         assert!(s.vad_threshold > 0.0);
         assert!(s.vad_silence_ms > 0);
