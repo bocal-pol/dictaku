@@ -10,6 +10,11 @@ pub struct WindowHandle(
     #[cfg(not(target_os = "windows"))] (),
 );
 
+// HWND (isize) est intrinsèquement Send+Sync — seule la manipulation API Win32 exige
+// d'être sur le bon thread, mais la valeur elle-même peut être partagée entre threads.
+unsafe impl Send for WindowHandle {}
+unsafe impl Sync for WindowHandle {}
+
 impl WindowHandle {
     /// Retourne le handle de la fenêtre actuellement au premier plan.
     pub fn foreground() -> Option<Self> {

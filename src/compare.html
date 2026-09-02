@@ -56,6 +56,7 @@
     }
     .badge-sr      { background: #1e3a5f; color: #60a5fa; }
     .badge-whisper { background: #3f1a4a; color: #c084fc; }
+    .badge-injected { background: #1a3a1a; color: #4a9a5a; font-size: 9px; }
 
     .selected-indicator {
       font-size: 10px;
@@ -120,12 +121,13 @@
   </style>
 </head>
 <body>
-  <h2>Deux transcriptions disponibles — choisissez et corrigez si besoin</h2>
+  <h2 id="popup-title">Deux transcriptions disponibles — choisissez et corrigez si besoin</h2>
 
   <div class="option" id="opt-sr" onclick="selectOption('sr')">
     <div class="option-label">
-      <span class="badge badge-sr">1 · Rapide (tiny)</span>
-      Whisper tiny — rapide, moins précis
+      <span class="badge badge-sr">1 · Windows SR</span>
+      <span id="sr-already-injected" class="badge badge-injected" style="display:none">déjà injecté</span>
+      Reconnaissance vocale — temps réel
       <span class="selected-indicator">✓ sélectionné</span>
     </div>
     <div class="option-text" id="text-sr-static">Chargement…</div>
@@ -135,8 +137,8 @@
 
   <div class="option" id="opt-whisper" onclick="selectOption('whisper')">
     <div class="option-label">
-      <span class="badge badge-whisper">2 · Précis (small)</span>
-      Whisper small — précis, vocabulaire policier
+      <span class="badge badge-whisper">2 · Whisper small</span>
+      Analyse IA — vocabulaire policier
       <span class="selected-indicator">✓ sélectionné</span>
     </div>
     <div class="option-text" id="text-whisper-static">Chargement…</div>
@@ -144,11 +146,11 @@
               onclick="event.stopPropagation()"></textarea>
   </div>
 
-  <p class="hint">Modifiez directement le texte sélectionné · Le choix sera mémorisé · <kbd>1</kbd> / <kbd>2</kbd> pour basculer · <kbd>Ctrl+Entrée</kbd> pour injecter</p>
+  <p class="hint" id="popup-hint">Modifiez directement le texte sélectionné · Le choix sera mémorisé · <kbd>1</kbd> / <kbd>2</kbd> pour basculer · <kbd>Ctrl+Entrée</kbd> pour remplacer</p>
 
   <div class="footer">
-    <button class="btn btn-ghost" onclick="cancel()">Annuler</button>
-    <button class="btn btn-primary" onclick="confirm()">Injecter</button>
+    <button class="btn btn-ghost" onclick="cancel()">Garder SR</button>
+    <button class="btn btn-primary" onclick="confirm()" id="btn-confirm">Remplacer</button>
   </div>
 
   <script>
@@ -158,18 +160,31 @@
     let srText = '';
     let whisperText = '';
     let current = 'whisper'; // défaut : Whisper (plus précis)
+    let srWasInjected = false;
 
     listen('dictaku://compare-ready', (ev) => {
-      srText      = ev.payload.sr_text;
-      whisperText = ev.payload.whisper_text;
+      srText         = ev.payload.sr_text;
+      whisperText    = ev.payload.whisper_text;
+      srWasInjected  = !!ev.payload.sr_was_injected;
 
       document.getElementById('text-sr-static').textContent      = srText;
       document.getElementById('text-sr-edit').value              = srText;
       document.getElementById('text-whisper-static').textContent = whisperText;
       document.getElementById('text-whisper-edit').value         = whisperText;
 
+      // Afficher le badge "déjà injecté" si SR a déjà écrit dans le champ.
+      const badge = document.getElementById('sr-already-injected');
+      if (badge) badge.style.display = srWasInjected ? 'inline' : 'none';
+
+      // Adapter le titre et les boutons selon le mode.
+      if (srWasInjected) {
+        document.getElementById('popup-title').textContent =
+          'Windows SR a déjà transcrit — Whisper propose une version différente';
+        document.getElementById('popup-hint').innerHTML =
+          'SR est déjà dans le champ · Choisissez <kbd>1</kbd> pour le garder ou <kbd>2</kbd> pour remplacer · <kbd>Ctrl+Entrée</kbd> pour confirmer';
+      }
+
       selectOption('whisper');
-      // Focus dans la textarea de l'option sélectionnée par défaut.
       document.getElementById('text-whisper-edit').focus();
     });
 
@@ -216,6 +231,7 @@
     }
 
     async function cancel() {
+      // Annuler = conserver ce qui est déjà dans le champ (SR ou rien).
       await invoke('resolve_comparison', { srText, chosenText: '' });
       window.close();
     }

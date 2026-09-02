@@ -27,6 +27,18 @@ impl std::fmt::Display for Language {
     }
 }
 
+impl Language {
+    /// Tag BCP-47 pour Windows Speech Recognition (ex. "fr-BE", "en-US").
+    /// Auto → "fr-BE" par défaut (contexte police belge).
+    pub fn bcp47(&self) -> &'static str {
+        match self {
+            Language::Auto | Language::Fr => "fr-BE",
+            Language::En => "en-US",
+            Language::Nl => "nl-BE",
+        }
+    }
+}
+
 /// Modèles Whisper GGML disponibles — compromis vitesse / précision.
 ///
 /// Tiny  : ~39 MB, ~10x temps réel  — suffisant pour les commandes courtes

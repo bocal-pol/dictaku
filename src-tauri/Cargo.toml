@@ -42,6 +42,12 @@ windows-sys = { version = "0.52", features = [
     "Win32_System_Memory",
     "Win32_System_Ole",
 ] }
+windows = { version = "0.61", features = [
+    "Media_SpeechRecognition",
+    "Foundation",
+    "Foundation_Collections",
+    "Globalization",
+] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

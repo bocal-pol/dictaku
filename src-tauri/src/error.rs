@@ -11,6 +11,9 @@ pub enum DictakuError {
     #[error("Échec de la transcription : {0}")]
     Transcription(String),
 
+    #[error("Erreur Windows Speech Recognition : {0}")]
+    Stt(String),
+
     #[error("Délai d'attente de transcription dépassé ({0}s)")]
     TranscriptionTimeout(u64),
 
