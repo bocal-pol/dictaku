@@ -16,7 +16,7 @@
     }
 
     h2 {
-      font-size: 13px;
+      font-size: 12px;
       color: #6b8f72;
       text-transform: uppercase;
       letter-spacing: .06em;
@@ -31,14 +31,19 @@
       margin-bottom: 10px;
       cursor: pointer;
       transition: border-color .15s, background .15s;
+      position: relative;
     }
     .option:hover { border-color: #4a9a5a; background: #132813; }
-    .option.selected { border-color: #4a9a5a; background: #1a3a1a; }
+    .option.selected {
+      border-color: #4a9a5a;
+      background: #1a3a1a;
+      cursor: default;
+    }
 
     .option-label {
       font-size: 11px;
       color: #6b8f72;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -52,41 +57,54 @@
     .badge-sr      { background: #1e3a5f; color: #60a5fa; }
     .badge-whisper { background: #3f1a4a; color: #c084fc; }
 
+    .selected-indicator {
+      font-size: 10px;
+      color: #4a9a5a;
+      margin-left: auto;
+      font-weight: 600;
+      display: none;
+    }
+    .option.selected .selected-indicator { display: inline; }
+
+    /* Texte statique (option non sélectionnée) */
     .option-text {
       font-size: 14px;
       line-height: 1.5;
       color: #e0f0e4;
     }
 
-    .edit-section {
-      margin-top: 10px;
-    }
-    .edit-section label {
-      font-size: 11px;
-      color: #6b8f72;
-      display: block;
-      margin-bottom: 4px;
-    }
-    textarea {
+    /* Textarea inline (option sélectionnée) — remplace option-text */
+    .option-textarea {
+      display: none;
       width: 100%;
-      background: #0f2010;
-      border: 1px solid #2a6a3a;
-      border-radius: 6px;
+      background: transparent;
+      border: none;
+      border-top: 1px solid #2a6a3a;
+      padding-top: 8px;
+      margin-top: 4px;
       color: #e0f0e4;
-      padding: 8px;
-      font-size: 13px;
+      font-size: 14px;
       font-family: inherit;
-      resize: vertical;
-      min-height: 60px;
+      line-height: 1.5;
+      resize: none;
       outline: none;
+      cursor: text;
+      min-height: 48px;
     }
-    textarea:focus { border-color: #4a9a5a; }
+    .option.selected .option-text     { display: none; }
+    .option.selected .option-textarea { display: block; }
+
+    .hint {
+      font-size: 11px;
+      color: #4a6a4a;
+      margin-bottom: 12px;
+    }
 
     .footer {
       display: flex;
       justify-content: flex-end;
       gap: 8px;
-      margin-top: 12px;
+      margin-top: 4px;
     }
     .btn {
       padding: 7px 16px;
@@ -99,40 +117,34 @@
     .btn-primary { background: #4a9a5a; color: #081408; }
     .btn-ghost   { background: transparent; border: 1px solid #2a6a3a; color: #e0f0e4; }
     .btn:hover { opacity: .85; }
-
-    .hint {
-      font-size: 11px;
-      color: #4a6a4a;
-      margin-top: 8px;
-      text-align: center;
-    }
   </style>
 </head>
 <body>
-  <h2>Deux transcriptions disponibles — choisissez</h2>
+  <h2>Deux transcriptions disponibles — choisissez et corrigez si besoin</h2>
 
-  <div class="option" id="opt-sr" onclick="select('sr')">
+  <div class="option" id="opt-sr" onclick="selectOption('sr')">
     <div class="option-label">
-      <span class="badge badge-sr">Windows SR</span>
+      <span class="badge badge-sr">1 · Windows SR</span>
       Rapide · intégré Windows
+      <span class="selected-indicator">✓ sélectionné</span>
     </div>
-    <div class="option-text" id="text-sr">Chargement…</div>
+    <div class="option-text" id="text-sr-static">Chargement…</div>
+    <textarea class="option-textarea" id="text-sr-edit" rows="3"
+              onclick="event.stopPropagation()"></textarea>
   </div>
 
-  <div class="option" id="opt-whisper" onclick="select('whisper')">
+  <div class="option" id="opt-whisper" onclick="selectOption('whisper')">
     <div class="option-label">
-      <span class="badge badge-whisper">Whisper</span>
+      <span class="badge badge-whisper">2 · Whisper</span>
       Précis · vocabulaire policier
+      <span class="selected-indicator">✓ sélectionné</span>
     </div>
-    <div class="option-text" id="text-whisper">Chargement…</div>
+    <div class="option-text" id="text-whisper-static">Chargement…</div>
+    <textarea class="option-textarea" id="text-whisper-edit" rows="3"
+              onclick="event.stopPropagation()"></textarea>
   </div>
 
-  <div class="edit-section">
-    <label>Ou modifiez manuellement avant injection :</label>
-    <textarea id="manual"></textarea>
-  </div>
-
-  <p class="hint">Le choix sera mémorisé pour améliorer les transcriptions futures.</p>
+  <p class="hint">Modifiez directement le texte sélectionné · Le choix sera mémorisé · <kbd>1</kbd> / <kbd>2</kbd> pour basculer · <kbd>Ctrl+Entrée</kbd> pour injecter</p>
 
   <div class="footer">
     <button class="btn btn-ghost" onclick="cancel()">Annuler</button>
@@ -145,48 +157,89 @@
 
     let srText = '';
     let whisperText = '';
-    let selected = 'whisper'; // défaut : Whisper (plus précis)
+    let current = 'whisper'; // défaut : Whisper (plus précis)
 
-    // Reçoit les textes depuis Rust via un événement Tauri.
     listen('dictaku://compare-ready', (ev) => {
       srText      = ev.payload.sr_text;
       whisperText = ev.payload.whisper_text;
 
-      document.getElementById('text-sr').textContent      = srText;
-      document.getElementById('text-whisper').textContent = whisperText;
-      document.getElementById('manual').value             = whisperText;
+      document.getElementById('text-sr-static').textContent      = srText;
+      document.getElementById('text-sr-edit').value              = srText;
+      document.getElementById('text-whisper-static').textContent = whisperText;
+      document.getElementById('text-whisper-edit').value         = whisperText;
 
-      select('whisper');
+      selectOption('whisper');
+      // Focus dans la textarea de l'option sélectionnée par défaut.
+      document.getElementById('text-whisper-edit').focus();
     });
 
-    function select(which) {
-      selected = which;
+    function selectOption(which) {
+      current = which;
+
       document.getElementById('opt-sr').classList.toggle('selected', which === 'sr');
       document.getElementById('opt-whisper').classList.toggle('selected', which === 'whisper');
-      document.getElementById('manual').value = which === 'sr' ? srText : whisperText;
+
+      // Recopie le texte statique dans la textarea de l'option nouvellement sélectionnée
+      // uniquement si la textarea est encore vierge de modification — sinon on préserve
+      // ce que l'utilisateur a déjà tapé.
+      if (which === 'sr') {
+        const ta = document.getElementById('text-sr-edit');
+        if (ta.value === srText || ta.value === whisperText) ta.value = srText;
+        ta.focus();
+      } else {
+        const ta = document.getElementById('text-whisper-edit');
+        if (ta.value === srText || ta.value === whisperText) ta.value = whisperText;
+        ta.focus();
+      }
+
+      // Auto-resize des textareas.
+      autoResize();
+    }
+
+    function getFinalText() {
+      const id = current === 'sr' ? 'text-sr-edit' : 'text-whisper-edit';
+      return document.getElementById(id).value.trim();
+    }
+
+    function getSrText() {
+      return srText;
     }
 
     async function confirm() {
-      const finalText = document.getElementById('manual').value.trim();
+      const finalText = getFinalText();
       if (!finalText) return;
       await invoke('resolve_comparison', {
-        srText,
+        srText: getSrText(),
         chosenText: finalText,
       });
       window.close();
     }
 
-    function cancel() {
-      invoke('resolve_comparison', { srText, chosenText: '' });
+    async function cancel() {
+      await invoke('resolve_comparison', { srText, chosenText: '' });
       window.close();
     }
 
-    // Keyboard shortcuts
+    function autoResize() {
+      ['text-sr-edit', 'text-whisper-edit'].forEach(id => {
+        const ta = document.getElementById(id);
+        ta.style.height = 'auto';
+        ta.style.height = ta.scrollHeight + 'px';
+      });
+    }
+
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') cancel();
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') confirm();
-      if (e.key === '1') select('sr');
-      if (e.key === '2') select('whisper');
+      // 1/2 uniquement si le focus n'est pas dans une textarea.
+      if (document.activeElement.tagName !== 'TEXTAREA') {
+        if (e.key === '1') selectOption('sr');
+        if (e.key === '2') selectOption('whisper');
+      }
+    });
+
+    document.querySelectorAll('.option-textarea').forEach(ta => {
+      ta.addEventListener('input', autoResize);
     });
   </script>
 </body>
