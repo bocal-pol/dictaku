@@ -215,8 +215,11 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
 
                     info!("SR injecté total : {:?}", &sr_injected[..sr_injected.len().min(80)]);
 
+                    // Capture le flag avant que sr_injected soit potentiellement consommé.
+                    let sr_was_active = !sr_injected.is_empty();
+
                     // — — — WHISPER + COMPARAISON — — —
-                    let hybrid_result = if !sr_injected.is_empty() {
+                    let hybrid_result = if sr_was_active {
                         // Mode SR actif : comparer SR déjà injecté vs Whisper.
                         let params = HybridParams {
                             samples:    all_samples,
@@ -278,13 +281,13 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
                         // — — — FAST ONLY — — —
                         // SR a déjà injecté (ou fallback tiny), Whisper absent.
                         HybridResult::FastOnly { text } => {
-                            if !text.is_empty() && sr_injected.is_empty() {
+                            if !text.is_empty() && !sr_was_active {
                                 // Fallback sans SR → injection directe.
                                 let corrections = crate::injection::Corrections::load();
                                 let final_text  = corrections.apply(&text);
                                 inject_text(final_text, target_window, inj_delay).await;
                             }
-                            // Si SR a déjà injecté : texte déjà dans le champ, rien à faire.
+                            // Si SR était actif : texte déjà dans le champ, rien à faire.
                         }
 
                         // — — — PRECISE ONLY — — —

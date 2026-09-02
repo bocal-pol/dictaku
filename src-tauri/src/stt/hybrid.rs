@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
 use crate::config::settings::Language;

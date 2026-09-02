@@ -101,8 +101,8 @@ where
     let win_lang = WinLanguage::CreateLanguage(&lang_hstr)
         .map_err(|e| DictakuError::Stt(format!("WinLang::CreateLanguage({lang_tag}) : {e}")))?;
 
-    let recognizer = SpeechRecognizer::CreateWithLanguage(&win_lang)
-        .map_err(|e| DictakuError::Stt(format!("SpeechRecognizer::CreateWithLanguage : {e}")))?;
+    let recognizer = SpeechRecognizer::Create(&win_lang)
+        .map_err(|e| DictakuError::Stt(format!("SpeechRecognizer::Create : {e}")))?;
 
     // Compiler la grammaire par défaut (dictée libre).
     recognizer.CompileConstraintsAsync()
@@ -117,20 +117,23 @@ where
     // Enregistrer le handler de résultat.
     let acc_for_result = accumulated.clone();
 
-    let _token = session.ResultGenerated(&windows::Foundation::TypedEventHandler::new(
-        move |_session: &Option<SpeechContinuousRecognitionSession>,
-              args: &Option<windows::Media::SpeechRecognition::SpeechContinuousRecognitionResultGeneratedEventArgs>| {
-            if let Some(args) = args {
-                if let Ok(result) = args.Result() {
-                    if let Ok(text) = result.Text() {
-                        let fragment = text.to_string();
-                        if !fragment.trim().is_empty() {
-                            debug!("SR fragment : {fragment:?}");
-                            inject_fn(&fragment);
-                            let mut acc = acc_for_result.lock().unwrap();
-                            if !acc.is_empty() { acc.push(' '); }
-                            acc.push_str(&fragment);
-                        }
+    use windows::Media::SpeechRecognition::SpeechContinuousRecognitionResultGeneratedEventArgs;
+    type SrEventHandler = windows::Foundation::TypedEventHandler<
+        SpeechContinuousRecognitionSession,
+        SpeechContinuousRecognitionResultGeneratedEventArgs,
+    >;
+
+    let _token = session.ResultGenerated(&SrEventHandler::new(
+        move |_session, args| {
+            if let Ok(result) = args.Result() {
+                if let Ok(text) = result.Text() {
+                    let fragment = text.to_string();
+                    if !fragment.trim().is_empty() {
+                        debug!("SR fragment : {fragment:?}");
+                        inject_fn(&fragment);
+                        let mut acc = acc_for_result.lock().unwrap();
+                        if !acc.is_empty() { acc.push(' '); }
+                        acc.push_str(&fragment);
                     }
                 }
             }
