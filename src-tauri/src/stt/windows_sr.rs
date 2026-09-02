@@ -125,15 +125,17 @@ where
 
     let _token = session.ResultGenerated(&SrEventHandler::new(
         move |_session, args| {
-            if let Ok(result) = (*args).Result() {
-                if let Ok(text) = result.Text() {
-                    let fragment = text.to_string();
-                    if !fragment.trim().is_empty() {
-                        debug!("SR fragment : {fragment:?}");
-                        inject_fn(&fragment);
-                        let mut acc = acc_for_result.lock().unwrap();
-                        if !acc.is_empty() { acc.push(' '); }
-                        acc.push_str(&fragment);
+            if let Some(args) = &*args {
+                if let Ok(result) = args.Result() {
+                    if let Ok(text) = result.Text() {
+                        let fragment = text.to_string();
+                        if !fragment.trim().is_empty() {
+                            debug!("SR fragment : {fragment:?}");
+                            inject_fn(&fragment);
+                            let mut acc = acc_for_result.lock().unwrap();
+                            if !acc.is_empty() { acc.push(' '); }
+                            acc.push_str(&fragment);
+                        }
                     }
                 }
             }
