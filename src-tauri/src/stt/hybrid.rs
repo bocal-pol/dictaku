@@ -131,11 +131,11 @@ pub fn transcribe_hybrid(
     });
 
     let fast_result = fast_handle.join()
-        .unwrap_or_else(|_| Ok(None))
+        .unwrap_or(Ok(None))
         .unwrap_or_else(|e| { warn!("Moteur rapide erreur : {e}"); None });
 
     let precise_result = precise_handle.join()
-        .unwrap_or_else(|_| Ok(None))
+        .unwrap_or(Ok(None))
         .unwrap_or_else(|e| { warn!("Whisper small erreur : {e}"); None });
 
     match (fast_result, precise_result) {

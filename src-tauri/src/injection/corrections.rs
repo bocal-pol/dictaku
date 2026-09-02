@@ -1,4 +1,5 @@
 use directories::ProjectDirs;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{debug, info, warn};
@@ -102,7 +103,7 @@ impl Corrections {
         let mut result = text.to_string();
         // Trier par longueur décroissante pour éviter les remplacements partiels.
         let mut sorted: Vec<(&String, &CorrectionEntry)> = self.entries.iter().collect();
-        sorted.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        sorted.sort_by_key(|a| Reverse(a.0.len()));
 
         for (key, entry) in &sorted {
             // Remplacement insensible à la casse, mot entier uniquement.
@@ -132,7 +133,7 @@ impl Corrections {
     /// Retourne les N termes les plus fréquemment corrigés pour enrichir le prompt Whisper.
     pub fn top_terms(&self, n: usize) -> Vec<String> {
         let mut sorted: Vec<&CorrectionEntry> = self.entries.values().collect();
-        sorted.sort_by(|a, b| b.count.cmp(&a.count));
+        sorted.sort_by_key(|a| Reverse(a.count));
         sorted.iter().take(n).map(|e| e.corrected.clone()).collect()
     }
 }
