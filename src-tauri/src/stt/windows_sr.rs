@@ -95,11 +95,15 @@ where
         SpeechRecognitionTopicConstraint,
         SpeechRecognitionScenario,
     };
-    use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, GetMessageW, MSG, TranslateMessage,
+    };
 
-    // WinRT SpeechRecognizer requiert COM initialisé sur le thread appelant.
+    // WinRT SpeechRecognizer envoie ses callbacks via un STA message loop.
+    // MULTITHREADED (MTA) bloque les événements — il faut STA + pump.
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     }
 
     info!("SR WinRT : initialisation langue={lang_tag}");
@@ -186,11 +190,30 @@ where
 
     info!("SR WinRT : session démarrée");
 
-    // Attendre le signal d'arrêt.
-    loop {
-        std::thread::sleep(Duration::from_millis(100));
-        if *stop_flag.lock().unwrap() {
-            break;
+    // Message pump STA — requis pour que WinRT dispatche les callbacks ResultGenerated.
+    // Sans pump, les événements COM/WinRT restent en queue et ne sont jamais livrés.
+    unsafe {
+        let mut msg = MSG::default();
+        loop {
+            // PeekMessage non-bloquant pour ne pas geler la vérification du stop_flag.
+            let peek = windows::Win32::UI::WindowsAndMessaging::PeekMessageW(
+                &mut msg,
+                None,
+                0,
+                0,
+                windows::Win32::UI::WindowsAndMessaging::PM_REMOVE,
+            );
+            if peek.as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+
+            if *stop_flag.lock().unwrap() {
+                break;
+            }
+
+            // Petite pause pour ne pas consommer 100% CPU.
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 
