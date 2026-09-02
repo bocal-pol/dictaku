@@ -6,3 +6,4 @@ pub mod windows_sr;
 pub use hybrid::{transcribe_hybrid, HybridResult};
 pub use model_manager::ModelManager;
 pub use whisper::WhisperTranscriber;
+pub use windows_sr::transcribe_windows_sr;

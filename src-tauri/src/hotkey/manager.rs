@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, Runtime};
+use tauri::{Emitter, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tracing::{error, info, warn};
 
@@ -70,6 +70,7 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
                 let config = config_arc.lock().await.clone();
                 let cli_path = resolve_whisper_cli();
                 let model_path = config.models_dir().join(config.model.filename());
+                let models_dir = config.models_dir();
 
                 if !cli_path.exists() {
                     error!("whisper-cli.exe introuvable : {}", cli_path.display());
@@ -160,9 +161,9 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
                     let app_handle3 = app_handle2.clone();
                     let lang = config.language.clone();
 
-                    // Moteur hybride : Windows SR + Whisper en parallèle.
+                    // Moteur hybride : Whisper tiny (rapide) + Whisper small (précis) en parallèle.
                     let hybrid_result = match tokio::task::spawn_blocking(move || {
-                        crate::stt::transcribe_hybrid(all_samples, lang, cli_path, model_path)
+                        crate::stt::transcribe_hybrid(all_samples, lang, cli_path, model_path, models_dir)
                     }).await {
                         Ok(Ok(r)) => r,
                         Ok(Err(e)) => {
@@ -188,12 +189,12 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
                     use crate::stt::HybridResult;
                     let text = match hybrid_result {
                         HybridResult::Concordant { text }
-                        | HybridResult::SrOnly { text }
-                        | HybridResult::WhisperOnly { text } => {
+                        | HybridResult::FastOnly { text }
+                        | HybridResult::PreciseOnly { text } => {
                             let corrections = crate::injection::Corrections::load();
                             corrections.apply(&text)
                         }
-                        HybridResult::Divergent { sr_text, whisper_text } => {
+                        HybridResult::Divergent { fast_text, precise_text } => {
                             let (tx, rx) = tokio::sync::oneshot::channel::<String>();
                             {
                                 let app_state = app_handle3.state::<crate::state::app_state::AppState>();
@@ -203,8 +204,8 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
                                 let _ = win.show();
                                 let _ = win.set_focus();
                                 let _ = app_handle3.emit("dictaku://compare-ready", serde_json::json!({
-                                    "sr_text": sr_text,
-                                    "whisper_text": whisper_text,
+                                    "sr_text": fast_text,
+                                    "whisper_text": precise_text,
                                 }));
                             }
                             match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
