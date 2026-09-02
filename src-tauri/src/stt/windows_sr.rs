@@ -89,9 +89,18 @@ where
 {
     use windows::Globalization::Language as WinLanguage;
     use windows::Media::SpeechRecognition::{
+        SpeechContinuousRecognitionResultGeneratedEventArgs,
         SpeechContinuousRecognitionSession,
         SpeechRecognizer,
+        SpeechRecognitionTopicConstraint,
+        SpeechRecognitionScenario,
     };
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+
+    // WinRT SpeechRecognizer requiert COM initialisé sur le thread appelant.
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
 
     info!("SR WinRT : initialisation langue={lang_tag}");
 
@@ -115,11 +124,25 @@ where
             .map_err(|e| DictakuError::Stt(format!("SpeechRecognizer (système) : {e}")))?
     };
 
-    // Compiler la grammaire par défaut (dictée libre).
+    // Ajouter une contrainte de dictée topic pour la reconnaissance libre.
+    // Sans contrainte explicite, WinRT peut ne produire aucun résultat.
+    let constraints = recognizer.Constraints()
+        .map_err(|e| DictakuError::Stt(format!("Constraints() : {e}")))?;
+
+    let topic_constraint = SpeechRecognitionTopicConstraint::Create(
+        SpeechRecognitionScenario::Dictation,
+        &windows::core::HSTRING::from("dictation"),
+    ).map_err(|e| DictakuError::Stt(format!("TopicConstraint : {e}")))?;
+
+    constraints.Append(&topic_constraint)
+        .map_err(|e| DictakuError::Stt(format!("Append constraint : {e}")))?;
+
+    // Compiler les contraintes.
     recognizer.CompileConstraintsAsync()
         .map_err(|e| DictakuError::Stt(format!("CompileConstraints : {e}")))?
         .get()
         .map_err(|e| DictakuError::Stt(format!("CompileConstraints await : {e}")))?;
+    info!("SR WinRT : contraintes compilées (dictée libre)");
 
     // Obtenir la session continue.
     let session: SpeechContinuousRecognitionSession = recognizer.ContinuousRecognitionSession()
@@ -128,7 +151,6 @@ where
     // Enregistrer le handler de résultat.
     let acc_for_result = accumulated.clone();
 
-    use windows::Media::SpeechRecognition::SpeechContinuousRecognitionResultGeneratedEventArgs;
     type SrEventHandler = windows::Foundation::TypedEventHandler<
         SpeechContinuousRecognitionSession,
         SpeechContinuousRecognitionResultGeneratedEventArgs,
@@ -136,12 +158,14 @@ where
 
     let _token = session.ResultGenerated(&SrEventHandler::new(
         move |_session, args| {
+            debug!("SR handler invoqué");
             if let Some(args) = &*args {
                 if let Ok(result) = args.Result() {
                     if let Ok(text) = result.Text() {
                         let fragment = text.to_string();
+                        debug!("SR fragment reçu : {fragment:?}");
                         if !fragment.trim().is_empty() {
-                            debug!("SR fragment : {fragment:?}");
+                            info!("SR fragment : {fragment:?}");
                             inject_fn(&fragment);
                             let mut acc = acc_for_result.lock().unwrap();
                             if !acc.is_empty() { acc.push(' '); }

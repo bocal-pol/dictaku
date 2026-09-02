@@ -93,8 +93,11 @@ impl WhisperTranscriber {
         // whisper-cli écrit la transcription sur stdout.
         let stdout = String::from_utf8_lossy(&output.stdout);
         debug!("whisper-cli stdout brut : {stdout:?}");
+        debug!("whisper-cli lignes raw : {:?}", stdout.lines().collect::<Vec<_>>());
 
         // Filtrage des lignes de méta-données et hallucinations Whisper.
+        // Whisper peut produire une ligne avec [Musique] ou [BLANK_AUDIO] en suffixe —
+        // on filtre les balises inline avec une regex simple avant le filtre ligne.
         let text = stdout
             .lines()
             .filter(|line| {
@@ -108,6 +111,21 @@ impl WhisperTranscriber {
                     && !l.starts_with("main:")
                     && !is_hallucination(l)
             })
+            .map(|line| {
+                // Retire les balises inline entre crochets : [Musique], [BLANK_AUDIO]…
+                let mut out = String::new();
+                let mut depth = 0usize;
+                for ch in line.trim().chars() {
+                    match ch {
+                        '[' => { depth += 1; }
+                        ']' => { depth = depth.saturating_sub(1); }
+                        c if depth == 0 => out.push(c),
+                        _ => {}
+                    }
+                }
+                out
+            })
+            .filter(|l| !l.trim().is_empty())
             .collect::<Vec<_>>()
             .join(" ");
 
