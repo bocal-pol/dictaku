@@ -125,7 +125,7 @@ where
 
     let _token = session.ResultGenerated(&SrEventHandler::new(
         move |_session, args| {
-            if let Ok(result) = args.Result() {
+            if let Ok(result) = (*args).Result() {
                 if let Ok(text) = result.Text() {
                     let fragment = text.to_string();
                     if !fragment.trim().is_empty() {
