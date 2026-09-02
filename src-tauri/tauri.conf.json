@@ -52,6 +52,20 @@
         "skipTaskbar": false,
         "center": true,
         "url": "setup.html"
+      },
+      {
+        "label": "compare",
+        "title": "Dictaku — Choisir la transcription",
+        "width": 480,
+        "height": 340,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "decorations": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": true,
+        "url": "compare.html"
       }
     ],
     "security": {

@@ -98,6 +98,7 @@ pub fn run() {
             ipc::commands::download_model,
             ipc::commands::check_model_exists,
             ipc::commands::close_setup_window,
+            ipc::commands::resolve_comparison,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur critique lors du démarrage de l'application Tauri");

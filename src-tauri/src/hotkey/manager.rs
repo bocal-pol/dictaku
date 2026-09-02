@@ -8,7 +8,6 @@ use crate::audio::recorder::{AudioRecorder, VadConfig};
 use crate::error::DictakuError;
 use crate::injection::typewriter::Typewriter;
 use crate::state::app_state::{AppState, DictationState};
-use crate::stt::whisper::WhisperTranscriber;
 
 const DEFAULT_SHORTCUT: &str = "ctrl+shift+f12";
 const STOP_SHORTCUT: &str = "escape";
@@ -154,26 +153,27 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
                         return;
                     }
 
-                    info!("Transcription de {} samples", all_samples.len());
+                    info!("Transcription hybride de {} samples", all_samples.len());
 
-                    let transcriber = WhisperTranscriber::new(cli_path, model_path, config.language);
                     let state_inj = state_for_stt.clone();
                     let stop_clear2 = active_stop_clear.clone();
                     let app_handle3 = app_handle2.clone();
+                    let lang = config.language.clone();
 
-                    let text = match tokio::task::spawn_blocking(move || {
-                        transcriber.transcribe(&all_samples)
+                    // Moteur hybride : Windows SR + Whisper en parallèle.
+                    let hybrid_result = match tokio::task::spawn_blocking(move || {
+                        crate::stt::transcribe_hybrid(all_samples, lang, cli_path, model_path)
                     }).await {
-                        Ok(Ok(t)) => t,
+                        Ok(Ok(r)) => r,
                         Ok(Err(e)) => {
-                            error!("Erreur transcription : {e}");
+                            error!("Erreur transcription hybride : {e}");
                             *state_for_stt.lock().await = DictationState::Idle;
                             *active_stop_clear.lock().unwrap() = None;
                             let _ = app_handle2.global_shortcut().unregister(stop_sc);
                             return;
                         }
                         Err(e) => {
-                            error!("spawn_blocking transcription : {e}");
+                            error!("spawn_blocking hybride : {e}");
                             *state_for_stt.lock().await = DictationState::Idle;
                             *active_stop_clear.lock().unwrap() = None;
                             let _ = app_handle2.global_shortcut().unregister(stop_sc);
@@ -181,8 +181,46 @@ pub fn register_global_shortcut<R: Runtime>(app: &tauri::App<R>) -> Result<(), D
                         }
                     };
 
-                    // Désinscription d'Escape — la dictée est terminée.
+                    // Désinscription d'Escape — transcription terminée.
                     let _ = app_handle3.global_shortcut().unregister(stop_sc);
+
+                    // Résout le texte final : concordant → direct, divergent → popup.
+                    use crate::stt::HybridResult;
+                    let text = match hybrid_result {
+                        HybridResult::Concordant { text }
+                        | HybridResult::SrOnly { text }
+                        | HybridResult::WhisperOnly { text } => {
+                            let corrections = crate::injection::Corrections::load();
+                            corrections.apply(&text)
+                        }
+                        HybridResult::Divergent { sr_text, whisper_text } => {
+                            let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+                            {
+                                let app_state = app_handle3.state::<crate::state::app_state::AppState>();
+                                *app_state.compare_tx.lock().unwrap() = Some(tx);
+                            }
+                            if let Some(win) = app_handle3.get_webview_window("compare") {
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                                let _ = app_handle3.emit("dictaku://compare-ready", serde_json::json!({
+                                    "sr_text": sr_text,
+                                    "whisper_text": whisper_text,
+                                }));
+                            }
+                            match tokio::time::timeout(std::time::Duration::from_secs(60), rx).await {
+                                Ok(Ok(chosen)) if !chosen.is_empty() => {
+                                    let corrections = crate::injection::Corrections::load();
+                                    corrections.apply(&chosen)
+                                }
+                                _ => {
+                                    info!("Popup timeout ou annulée — texte ignoré");
+                                    *state_inj.lock().await = DictationState::Idle;
+                                    *stop_clear2.lock().unwrap() = None;
+                                    return;
+                                }
+                            }
+                        }
+                    };
 
                     if text.is_empty() {
                         info!("Transcription vide — retour Idle");

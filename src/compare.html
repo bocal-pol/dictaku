@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Dictaku — Choisir la transcription</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #081408;
+      color: #e0f0e4;
+      font-family: Inter, system-ui, sans-serif;
+      font-size: 14px;
+      padding: 16px;
+      user-select: none;
+    }
+
+    h2 {
+      font-size: 13px;
+      color: #6b8f72;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 12px;
+    }
+
+    .option {
+      background: #0f2010;
+      border: 1px solid #2a6a3a;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .option:hover { border-color: #4a9a5a; background: #132813; }
+    .option.selected { border-color: #4a9a5a; background: #1a3a1a; }
+
+    .option-label {
+      font-size: 11px;
+      color: #6b8f72;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .badge {
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .badge-sr      { background: #1e3a5f; color: #60a5fa; }
+    .badge-whisper { background: #3f1a4a; color: #c084fc; }
+
+    .option-text {
+      font-size: 14px;
+      line-height: 1.5;
+      color: #e0f0e4;
+    }
+
+    .edit-section {
+      margin-top: 10px;
+    }
+    .edit-section label {
+      font-size: 11px;
+      color: #6b8f72;
+      display: block;
+      margin-bottom: 4px;
+    }
+    textarea {
+      width: 100%;
+      background: #0f2010;
+      border: 1px solid #2a6a3a;
+      border-radius: 6px;
+      color: #e0f0e4;
+      padding: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 60px;
+      outline: none;
+    }
+    textarea:focus { border-color: #4a9a5a; }
+
+    .footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .btn {
+      padding: 7px 16px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .btn-primary { background: #4a9a5a; color: #081408; }
+    .btn-ghost   { background: transparent; border: 1px solid #2a6a3a; color: #e0f0e4; }
+    .btn:hover { opacity: .85; }
+
+    .hint {
+      font-size: 11px;
+      color: #4a6a4a;
+      margin-top: 8px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h2>Deux transcriptions disponibles — choisissez</h2>
+
+  <div class="option" id="opt-sr" onclick="select('sr')">
+    <div class="option-label">
+      <span class="badge badge-sr">Windows SR</span>
+      Rapide · intégré Windows
+    </div>
+    <div class="option-text" id="text-sr">Chargement…</div>
+  </div>
+
+  <div class="option" id="opt-whisper" onclick="select('whisper')">
+    <div class="option-label">
+      <span class="badge badge-whisper">Whisper</span>
+      Précis · vocabulaire policier
+    </div>
+    <div class="option-text" id="text-whisper">Chargement…</div>
+  </div>
+
+  <div class="edit-section">
+    <label>Ou modifiez manuellement avant injection :</label>
+    <textarea id="manual"></textarea>
+  </div>
+
+  <p class="hint">Le choix sera mémorisé pour améliorer les transcriptions futures.</p>
+
+  <div class="footer">
+    <button class="btn btn-ghost" onclick="cancel()">Annuler</button>
+    <button class="btn btn-primary" onclick="confirm()">Injecter</button>
+  </div>
+
+  <script>
+    const { invoke, event } = window.__TAURI__;
+    const { listen } = event;
+
+    let srText = '';
+    let whisperText = '';
+    let selected = 'whisper'; // défaut : Whisper (plus précis)
+
+    // Reçoit les textes depuis Rust via un événement Tauri.
+    listen('dictaku://compare-ready', (ev) => {
+      srText      = ev.payload.sr_text;
+      whisperText = ev.payload.whisper_text;
+
+      document.getElementById('text-sr').textContent      = srText;
+      document.getElementById('text-whisper').textContent = whisperText;
+      document.getElementById('manual').value             = whisperText;
+
+      select('whisper');
+    });
+
+    function select(which) {
+      selected = which;
+      document.getElementById('opt-sr').classList.toggle('selected', which === 'sr');
+      document.getElementById('opt-whisper').classList.toggle('selected', which === 'whisper');
+      document.getElementById('manual').value = which === 'sr' ? srText : whisperText;
+    }
+
+    async function confirm() {
+      const finalText = document.getElementById('manual').value.trim();
+      if (!finalText) return;
+      await invoke('resolve_comparison', {
+        srText,
+        chosenText: finalText,
+      });
+      window.close();
+    }
+
+    function cancel() {
+      invoke('resolve_comparison', { srText, chosenText: '' });
+      window.close();
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') cancel();
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') confirm();
+      if (e.key === '1') select('sr');
+      if (e.key === '2') select('whisper');
+    });
+  </script>
+</body>
+</html>

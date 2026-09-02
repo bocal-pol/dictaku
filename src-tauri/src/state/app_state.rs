@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
@@ -43,6 +43,9 @@ pub struct AppState {
     pub config: Arc<Mutex<Settings>>,
     /// Chemin résolu du modèle Whisper actif (None = modèle absent ou non sélectionné).
     pub model_path: Arc<Mutex<Option<String>>>,
+    /// Canal oneshot pour recevoir le choix de l'agent depuis la popup de comparaison.
+    /// Présent uniquement quand la popup est ouverte, None sinon.
+    pub compare_tx: Arc<StdMutex<Option<tokio::sync::oneshot::Sender<String>>>>,
 }
 
 impl AppState {
@@ -51,6 +54,7 @@ impl AppState {
             state: Arc::new(Mutex::new(DictationState::Idle)),
             config: Arc::new(Mutex::new(config)),
             model_path: Arc::new(Mutex::new(None)),
+            compare_tx: Arc::new(StdMutex::new(None)),
         }
     }
 

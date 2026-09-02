@@ -1,9 +1,15 @@
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::oneshot;
 use tracing::{debug, info};
 
 use crate::config::settings::{Settings, WhisperModel};
 use crate::state::app_state::{AppState, DictationState};
 use crate::stt::model_manager::ModelManager;
+
+/// Canal pour recevoir la réponse de la popup de comparaison.
+/// Stocké dans AppState le temps que la popup est ouverte.
+pub type CompareResolverTx = Arc<Mutex<Option<oneshot::Sender<String>>>>;
 
 /// Retourne l'état courant du pipeline de dictée.
 ///
@@ -129,6 +135,36 @@ pub async fn close_setup_window(app: AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("setup") {
         win.close().map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+/// Reçoit le choix de l'agent depuis la popup de comparaison.
+///
+/// `chosen_text` : texte validé par l'agent (vide = annulation).
+/// Débloque le pipeline d'injection en attente.
+#[tauri::command]
+pub async fn resolve_comparison(
+    sr_text: String,
+    chosen_text: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    info!("IPC resolve_comparison : choix={:?}", &chosen_text[..chosen_text.len().min(40)]);
+
+    // Enregistre la correction si l'agent a choisi autre chose que SR.
+    if !chosen_text.is_empty() && chosen_text != sr_text {
+        let mut corrections = crate::injection::corrections::Corrections::load();
+        corrections.add(
+            &sr_text,
+            &chosen_text,
+            crate::injection::corrections::CorrectionSource::WhisperChosen,
+        );
+    }
+
+    // Débloque le canal en attente dans le pipeline hotkey.
+    if let Some(tx) = state.compare_tx.lock().unwrap().take() {
+        let _ = tx.send(chosen_text);
+    }
+
     Ok(())
 }
 
